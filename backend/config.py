@@ -10,11 +10,11 @@ OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY")
 
 # Wellness council members - 5 specialized professional roles
 COUNCIL_MODELS = [
-    "anthropic/claude-sonnet-4.5",      # Therapist
-    "openai/gpt-5.1",                    # Psychiatrist
-    "google/gemini-3-pro-preview",       # Personal Trainer
-    "x-ai/grok-4",                       # Doctor (GP)
-    "meta-llama/llama-3.1-70b-instruct", # Psychologist
+    "meta-llama/llama-3.1-70b-instruct",      # Therapist
+    "meta-llama/llama-3.1-70b-instruct",      # Psychiatrist
+    "meta-llama/llama-3.1-70b-instruct",      # Personal Trainer
+    "meta-llama/llama-3.1-70b-instruct",      # Doctor (GP)
+    "meta-llama/llama-3.1-70b-instruct",      # Psychologist
 ]
 
 # Define professional roles for each model
