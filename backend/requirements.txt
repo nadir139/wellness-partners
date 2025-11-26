@@ -1,0 +1,11 @@
+# FastAPI - Web framework for building APIs
+fastapi==0.104.1
+
+# Uvicorn - ASGI server for running FastAPI
+uvicorn==0.24.0
+
+# HTTPX - Async HTTP client for making API requests to OpenRouter
+httpx==0.25.1
+
+# Python-dotenv - Load environment variables from .env file
+python-dotenv==1.0.0
