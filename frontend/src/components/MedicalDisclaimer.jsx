@@ -7,9 +7,9 @@ export default function MedicalDisclaimer() {
       <div className="disclaimer-content">
         <strong>IMPORTANT MEDICAL DISCLAIMER</strong>
         <p>
-          This is an AI-powered wellness reflection tool for educational and self-exploration purposes only.
-          This is NOT medical advice, therapy, or professional healthcare.
-          Always consult licensed healthcare professionals for medical, mental health, or wellness concerns.
+          This is an AI wellness reflection tool for self-exploration purposes only.
+          This is NOT a medical advice, or professional healthcare.
+          Always consult with your doctor or healthcare professionals for medical, mental health, or wellness concerns.
         </p>
       </div>
     </div>

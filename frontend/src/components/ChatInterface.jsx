@@ -43,11 +43,12 @@ export default function ChatInterface({
     return (
       <div className="chat-interface">
         <div className="empty-state">
-          <h2>Welcome to Wellness Council</h2>
-          <p>A multidisciplinary AI wellness reflection tool</p>
+          <h2>Welcome to Wellness Partners,</h2>
+          <p>A multidisciplinary AI self-reflection tool</p>
+          <p>Create a new conversation to share your thoughts.</p>
+          <p>Take your first step to get better, we are here to help.</p>
           <MedicalDisclaimer />
-          <p className="get-started">Create a new conversation to get started</p>
-        </div>
+          </div>
       </div>
     );
   }
@@ -57,7 +58,7 @@ export default function ChatInterface({
       <div className="messages-container">
         {conversation.messages.length === 0 ? (
           <div className="empty-state">
-            <h2>Wellness Council</h2>
+            <h2>Wellness Partners</h2>
             <p>Share your wellness concerns to receive multidisciplinary perspectives</p>
             <MedicalDisclaimer />
           </div>

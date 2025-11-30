@@ -23,6 +23,8 @@
   color: #f57c00;
   font-size: 13px;
   margin-bottom: 4px;
+  text-decoration: underline;
+  font-weight: bold;
 }
 
 .disclaimer-content p {
