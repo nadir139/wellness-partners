@@ -1,6 +1,6 @@
 """FastAPI backend for LLM Council."""
 
-from fastapi import FastAPI, HTTPException, Header
+from fastapi import FastAPI, HTTPException, Header, Depends
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
@@ -12,6 +12,7 @@ import asyncio
 from . import storage
 from . import config
 from .council import run_full_council, generate_conversation_title, stage1_collect_responses, stage2_collect_rankings, stage3_synthesize_final, calculate_aggregate_rankings
+from .auth import get_current_user, get_admin_key
 
 app = FastAPI(title="LLM Council API")
 
@@ -38,6 +39,22 @@ class SendMessageRequest(BaseModel):
 class UpdateTitleRequest(BaseModel):
     """Request to update conversation title."""
     title: str
+
+
+class CreateProfileRequest(BaseModel):
+    """Request to create user profile."""
+    gender: str
+    age_range: str
+    mood: str
+
+
+class UserProfile(BaseModel):
+    """User profile response."""
+    user_id: str
+    email: Optional[str]
+    profile: Dict[str, str]
+    created_at: str
+    profile_locked: bool
 
 
 class ConversationMetadata(BaseModel):
@@ -292,6 +309,77 @@ async def get_stage2_analytics(
         "stage2_data": stage2_analytics,
         "note": "This data is for analytics and research purposes. Stage 2 is hidden from end users."
     }
+
+
+# User Profile Endpoints
+
+
+@app.post("/api/users/profile", response_model=UserProfile)
+async def create_profile(
+    request: CreateProfileRequest,
+    user: Dict[str, Any] = Depends(get_current_user)
+):
+    """
+    Create a user profile (after onboarding questions).
+    Profile is locked after creation and cannot be edited.
+    """
+    # Check if profile already exists
+    existing_profile = storage.get_user_profile(user["user_id"])
+    if existing_profile:
+        raise HTTPException(
+            status_code=400,
+            detail="Profile already exists and is locked"
+        )
+
+    # Create profile
+    profile = storage.create_user_profile(
+        user_id=user["user_id"],
+        email=user["email"],
+        profile_data={
+            "gender": request.gender,
+            "age_range": request.age_range,
+            "mood": request.mood
+        }
+    )
+
+    return profile
+
+
+@app.get("/api/users/profile", response_model=UserProfile)
+async def get_profile(user: Dict[str, Any] = Depends(get_current_user)):
+    """Get the current user's profile."""
+    profile = storage.get_user_profile(user["user_id"])
+
+    if profile is None:
+        raise HTTPException(
+            status_code=404,
+            detail="Profile not found. Please complete onboarding."
+        )
+
+    return profile
+
+
+@app.patch("/api/users/profile", response_model=UserProfile)
+async def update_profile(
+    request: CreateProfileRequest,
+    user: Dict[str, Any] = Depends(get_current_user)
+):
+    """
+    Update user profile (only if not locked).
+    Note: Profiles are locked by default after creation per spec.
+    """
+    try:
+        profile = storage.update_user_profile(
+            user_id=user["user_id"],
+            profile_data={
+                "gender": request.gender,
+                "age_range": request.age_range,
+                "mood": request.mood
+            }
+        )
+        return profile
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
 
 
 if __name__ == "__main__":

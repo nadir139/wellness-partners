@@ -1,15 +1,83 @@
 import { useState, useEffect } from 'react';
+import { useUser, useAuth } from '@clerk/clerk-react';
 import Sidebar from './components/Sidebar';
 import ChatInterface from './components/ChatInterface';
+import OnboardingPage from './components/OnboardingPage';
+import OnboardingQuestions from './components/OnboardingQuestions';
+import AccountCreation from './components/AccountCreation';
 import { api } from './api';
 import './App.css';
 
 function App() {
+  const { isSignedIn, user, isLoaded } = useUser();
+  const { getToken } = useAuth();
+
   const [conversations, setConversations] = useState([]);
   const [currentConversationId, setCurrentConversationId] = useState(null);
   const [currentConversation, setCurrentConversation] = useState(null);
   const [isLoading, setIsLoading] = useState(false);
   const [sidebarOpen, setSidebarOpen] = useState(true);
+
+  // Onboarding state
+  const [currentView, setCurrentView] = useState('landing'); // 'landing', 'questions', 'signup', 'signin', 'chat'
+  const [userProfile, setUserProfile] = useState(null);
+  const [hasBackendProfile, setHasBackendProfile] = useState(false);
+  const [checkingProfile, setCheckingProfile] = useState(true);
+
+  // Check for existing profile from backend when user is signed in
+  useEffect(() => {
+    async function checkProfile() {
+      if (!isLoaded) {
+        return;
+      }
+
+      if (!isSignedIn) {
+        // User is not signed in, show landing page
+        setCurrentView('landing');
+        setCheckingProfile(false);
+        return;
+      }
+
+      try {
+        // User is signed in, check if they have a backend profile
+        const profile = await api.getProfile(getToken);
+        if (profile) {
+          // Profile exists in backend
+          setHasBackendProfile(true);
+          setUserProfile(profile.profile);
+          setCurrentView('chat');
+        } else {
+          // No profile in backend, check localStorage
+          const savedProfile = localStorage.getItem('userProfile');
+          if (savedProfile) {
+            // Has temp profile from questions, need to save to backend
+            const tempProfile = JSON.parse(savedProfile);
+            setUserProfile(tempProfile);
+
+            // Try to save to backend
+            try {
+              await api.createProfile(tempProfile, getToken);
+              setHasBackendProfile(true);
+              localStorage.removeItem('userProfile'); // Clear temp storage
+              setCurrentView('chat');
+            } catch (error) {
+              console.error('Failed to save profile to backend:', error);
+              // Stay on current view
+            }
+          } else {
+            // No profile anywhere, send to questions
+            setCurrentView('questions');
+          }
+        }
+      } catch (error) {
+        console.error('Error checking profile:', error);
+      } finally {
+        setCheckingProfile(false);
+      }
+    }
+
+    checkProfile();
+  }, [isLoaded, isSignedIn, getToken]);
 
   // Load conversations on mount
   useEffect(() => {
@@ -25,7 +93,7 @@ function App() {
 
   const loadConversations = async () => {
     try {
-      const convs = await api.listConversations();
+      const convs = await api.listConversations(getToken);
       setConversations(convs);
     } catch (error) {
       console.error('Failed to load conversations:', error);
@@ -34,7 +102,7 @@ function App() {
 
   const loadConversation = async (id) => {
     try {
-      const conv = await api.getConversation(id);
+      const conv = await api.getConversation(id, getToken);
       setCurrentConversation(conv);
     } catch (error) {
       console.error('Failed to load conversation:', error);
@@ -43,7 +111,7 @@ function App() {
 
   const handleNewConversation = async () => {
     try {
-      const newConv = await api.createConversation();
+      const newConv = await api.createConversation(getToken);
       setConversations([
         { id: newConv.id, created_at: newConv.created_at, message_count: 0 },
         ...conversations,
@@ -60,7 +128,7 @@ function App() {
 
   const handleStarConversation = async (id) => {
     try {
-      await api.toggleStarConversation(id);
+      await api.toggleStarConversation(id, getToken);
       await loadConversations();
     } catch (error) {
       console.error('Failed to toggle star:', error);
@@ -69,7 +137,7 @@ function App() {
 
   const handleRenameConversation = async (id, newTitle) => {
     try {
-      await api.updateConversationTitle(id, newTitle);
+      await api.updateConversationTitle(id, newTitle, getToken);
       await loadConversations();
     } catch (error) {
       console.error('Failed to rename conversation:', error);
@@ -78,7 +146,7 @@ function App() {
 
   const handleDeleteConversation = async (id) => {
     try {
-      await api.deleteConversation(id);
+      await api.deleteConversation(id, getToken);
       // If we deleted the current conversation, clear it
       if (id === currentConversationId) {
         setCurrentConversationId(null);
@@ -202,7 +270,7 @@ function App() {
           default:
             console.log('Unknown event type:', eventType);
         }
-      });
+      }, getToken);
     } catch (error) {
       console.error('Failed to send message:', error);
       // Remove optimistic messages on error
@@ -214,6 +282,86 @@ function App() {
     }
   };
 
+  // Handle authentication state changes
+  useEffect(() => {
+    if (isLoaded && isSignedIn && userProfile && currentView !== 'chat') {
+      // User is signed in and has profile, go to chat
+      setCurrentView('chat');
+      loadConversations();
+    }
+  }, [isSignedIn, isLoaded, userProfile]);
+
+  // Handle onboarding flow
+  const handleStartOnboarding = () => {
+    setCurrentView('questions');
+  };
+
+  const handleProfileComplete = (profile) => {
+    // Save profile to localStorage for now (will move to backend later)
+    setUserProfile(profile);
+    localStorage.setItem('userProfile', JSON.stringify(profile));
+
+    // Show sign up page
+    setCurrentView('signup');
+  };
+
+  const handleSignIn = () => {
+    setCurrentView('signin');
+  };
+
+  const handleSignUp = () => {
+    setCurrentView('signup');
+  };
+
+  // View routing
+  if (!isLoaded || checkingProfile) {
+    // Show loading while Clerk initializes or checking profile
+    return (
+      <div style={{
+        minHeight: '100vh',
+        backgroundColor: '#791f85',
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+        color: '#FFFFFF',
+        fontSize: '18px'
+      }}>
+        Loading...
+      </div>
+    );
+  }
+
+  if (currentView === 'landing') {
+    return (
+      <OnboardingPage
+        logoText="Wellness Partner"
+        placeholder="whats on your mind?"
+        onSubmit={handleStartOnboarding}
+        onSignIn={handleSignIn}
+        onSignUp={handleSignUp}
+      />
+    );
+  }
+
+  if (currentView === 'questions') {
+    return (
+      <OnboardingQuestions onComplete={handleProfileComplete} />
+    );
+  }
+
+  if (currentView === 'signup') {
+    return (
+      <AccountCreation mode="signup" />
+    );
+  }
+
+  if (currentView === 'signin') {
+    return (
+      <AccountCreation mode="signin" />
+    );
+  }
+
+  // Main chat view
   return (
     <div className="app">
       {!sidebarOpen && (

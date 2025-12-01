@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef } from 'react';
+import { useClerk } from '@clerk/clerk-react';
 import './Sidebar.css';
 
 export default function Sidebar({
@@ -12,6 +13,7 @@ export default function Sidebar({
   isOpen = true,
   onToggleSidebar,
 }) {
+  const { signOut } = useClerk();
   const [openMenuId, setOpenMenuId] = useState(null);
   const menuRef = useRef(null);
 
@@ -155,6 +157,17 @@ export default function Sidebar({
             )}
           </>
         )}
+      </div>
+
+      <div className="sidebar-footer">
+        <button
+          className="logout-button"
+          onClick={() => signOut()}
+          aria-label="Log out"
+        >
+          <span className="logout-icon">🚪</span>
+          Log Out
+        </button>
       </div>
     </div>
   )

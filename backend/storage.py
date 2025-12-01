@@ -7,10 +7,14 @@ from typing import List, Dict, Any, Optional
 from pathlib import Path
 from .config import DATA_DIR
 
+# User profiles directory
+PROFILES_DIR = os.path.join(os.path.dirname(DATA_DIR), "data", "profiles")
+
 
 def ensure_data_dir():
     """Ensure the data directory exists."""
     Path(DATA_DIR).mkdir(parents=True, exist_ok=True)
+    Path(PROFILES_DIR).mkdir(parents=True, exist_ok=True)
 
 
 def get_conversation_path(conversation_id: str) -> str:
@@ -203,3 +207,94 @@ def delete_conversation(conversation_id: str):
     path = get_conversation_path(conversation_id)
     if os.path.exists(path):
         os.remove(path)
+
+
+# User Profile Functions
+
+
+def get_profile_path(user_id: str) -> str:
+    """Get the file path for a user profile."""
+    return os.path.join(PROFILES_DIR, f"{user_id}.json")
+
+
+def create_user_profile(user_id: str, email: Optional[str], profile_data: Dict[str, Any]) -> Dict[str, Any]:
+    """
+    Create a new user profile.
+
+    Args:
+        user_id: Clerk user ID
+        email: User's email address (optional)
+        profile_data: Profile data (gender, age_range, mood)
+
+    Returns:
+        Created profile dict
+    """
+    ensure_data_dir()
+
+    profile = {
+        "user_id": user_id,
+        "email": email or "unknown@clerk.local",
+        "profile": {
+            "gender": profile_data.get("gender"),
+            "age_range": profile_data.get("age_range"),
+            "mood": profile_data.get("mood")
+        },
+        "created_at": datetime.utcnow().isoformat(),
+        "profile_locked": True  # Cannot edit after creation (per spec)
+    }
+
+    path = get_profile_path(user_id)
+    with open(path, 'w') as f:
+        json.dump(profile, f, indent=2)
+
+    return profile
+
+
+def get_user_profile(user_id: str) -> Optional[Dict[str, Any]]:
+    """
+    Load a user profile from storage.
+
+    Args:
+        user_id: Clerk user ID
+
+    Returns:
+        Profile dict or None if not found
+    """
+    path = get_profile_path(user_id)
+
+    if not os.path.exists(path):
+        return None
+
+    with open(path, 'r') as f:
+        return json.load(f)
+
+
+def update_user_profile(user_id: str, profile_data: Dict[str, Any]) -> Dict[str, Any]:
+    """
+    Update a user profile (only if not locked).
+
+    Args:
+        user_id: Clerk user ID
+        profile_data: Updated profile data
+
+    Returns:
+        Updated profile dict
+
+    Raises:
+        ValueError: If profile is locked or not found
+    """
+    profile = get_user_profile(user_id)
+    if profile is None:
+        raise ValueError(f"Profile for user {user_id} not found")
+
+    if profile.get("profile_locked", False):
+        raise ValueError("Profile is locked and cannot be edited")
+
+    # Update profile fields
+    profile["profile"].update(profile_data)
+
+    path = get_profile_path(user_id)
+    with open(path, 'w') as f:
+        json.dump(profile, f, indent=2)
+
+    return profile
