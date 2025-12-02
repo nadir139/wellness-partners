@@ -1,30 +1,52 @@
 import { useState, useEffect } from 'react';
+import { Routes, Route, useNavigate } from 'react-router-dom';
 import { useUser, useAuth } from '@clerk/clerk-react';
 import Sidebar from './components/Sidebar';
 import ChatInterface from './components/ChatInterface';
 import OnboardingPage from './components/OnboardingPage';
 import OnboardingQuestions from './components/OnboardingQuestions';
 import AccountCreation from './components/AccountCreation';
+import Paywall from './components/Paywall';
+import PaymentSuccess from './components/PaymentSuccess';
 import { api } from './api';
 import './App.css';
 
 function App() {
   const { isSignedIn, user, isLoaded } = useUser();
   const { getToken } = useAuth();
+  const navigate = useNavigate();
 
   const [conversations, setConversations] = useState([]);
   const [currentConversationId, setCurrentConversationId] = useState(null);
   const [currentConversation, setCurrentConversation] = useState(null);
   const [isLoading, setIsLoading] = useState(false);
   const [sidebarOpen, setSidebarOpen] = useState(true);
-  // Feature 3: Follow-up form loading state
   const [isFollowUpLoading, setIsFollowUpLoading] = useState(false);
 
+  // Feature 4: Subscription state
+  const [subscription, setSubscription] = useState(null);
+
   // Onboarding state
-  const [currentView, setCurrentView] = useState('landing'); // 'landing', 'questions', 'signup', 'signin', 'chat'
+  const [currentView, setCurrentView] = useState('landing');
   const [userProfile, setUserProfile] = useState(null);
   const [hasBackendProfile, setHasBackendProfile] = useState(false);
   const [checkingProfile, setCheckingProfile] = useState(true);
+
+  // Feature 4: Load subscription when user is authenticated
+  useEffect(() => {
+    async function loadSubscription() {
+      if (isLoaded && isSignedIn) {
+        try {
+          const sub = await api.getSubscription(getToken);
+          setSubscription(sub);
+        } catch (error) {
+          console.error('Failed to load subscription:', error);
+        }
+      }
+    }
+
+    loadSubscription();
+  }, [isLoaded, isSignedIn, getToken]);
 
   // Check for existing profile from backend when user is signed in
   useEffect(() => {
@@ -60,11 +82,10 @@ function App() {
             try {
               await api.createProfile(tempProfile, getToken);
               setHasBackendProfile(true);
-              localStorage.removeItem('userProfile'); // Clear temp storage
+              localStorage.removeItem('userProfile');
               setCurrentView('chat');
             } catch (error) {
               console.error('Failed to save profile to backend:', error);
-              // Stay on current view
             }
           } else {
             // No profile anywhere, send to questions
@@ -73,7 +94,6 @@ function App() {
         }
       } catch (error) {
         // Silently handle errors during authentication flow
-        // User will be redirected to landing page
         setCurrentView('landing');
       } finally {
         setCheckingProfile(false);
@@ -85,10 +105,7 @@ function App() {
 
   // Load conversations when user is authenticated and in chat view
   useEffect(() => {
-    // Only load conversations if user is fully authenticated and in chat view
-    // This ensures the token is ready before attempting to fetch conversations
     if (isLoaded && isSignedIn && currentView === 'chat') {
-      // Small delay to ensure Clerk's getToken() is ready
       const timer = setTimeout(() => {
         loadConversations();
       }, 150);
@@ -121,6 +138,7 @@ function App() {
     }
   };
 
+  // Feature 4: Handle paywall when creating new conversation
   const handleNewConversation = async () => {
     try {
       const newConv = await api.createConversation(getToken);
@@ -130,7 +148,14 @@ function App() {
       ]);
       setCurrentConversationId(newConv.id);
     } catch (error) {
-      console.error('Failed to create conversation:', error);
+      // Feature 4: Check if it's a paywall error (402 Payment Required)
+      if (error.message && error.message.includes('402')) {
+        // Redirect to paywall
+        navigate('/paywall');
+      } else {
+        console.error('Failed to create conversation:', error);
+        alert('Failed to create conversation. Please try again.');
+      }
     }
   };
 
@@ -159,7 +184,6 @@ function App() {
   const handleDeleteConversation = async (id) => {
     try {
       await api.deleteConversation(id, getToken);
-      // If we deleted the current conversation, clear it
       if (id === currentConversationId) {
         setCurrentConversationId(null);
         setCurrentConversation(null);
@@ -176,23 +200,20 @@ function App() {
 
     setIsFollowUpLoading(true);
     try {
-      // Call the follow-up API endpoint
       const response = await api.submitFollowUp(
         currentConversationId,
         followUpAnswers,
         getToken
       );
 
-      // Add the second report as a new assistant message
       const secondReport = {
         role: 'assistant',
         stage1: response.stage1,
-        stage2: [], // Stage 2 hidden from users
+        stage2: [],
         stage3: response.stage3,
         metadata: response.metadata,
       };
 
-      // Update conversation with the new report
       setCurrentConversation((prev) => ({
         ...prev,
         messages: [...prev.messages, secondReport],
@@ -201,7 +222,6 @@ function App() {
         follow_up_answers: followUpAnswers,
       }));
 
-      // Reload conversations list to update sidebar
       loadConversations();
     } catch (error) {
       console.error('Failed to submit follow-up:', error);
@@ -216,14 +236,12 @@ function App() {
 
     setIsLoading(true);
     try {
-      // Optimistically add user message to UI
       const userMessage = { role: 'user', content };
       setCurrentConversation((prev) => ({
         ...prev,
         messages: [...prev.messages, userMessage],
       }));
 
-      // Create a partial assistant message that will be updated progressively
       const assistantMessage = {
         role: 'assistant',
         stage1: null,
@@ -237,13 +255,11 @@ function App() {
         },
       };
 
-      // Add the partial assistant message
       setCurrentConversation((prev) => ({
         ...prev,
         messages: [...prev.messages, assistantMessage],
       }));
 
-      // Send message with streaming
       await api.sendMessageStream(currentConversationId, content, (eventType, event) => {
         switch (eventType) {
           case 'stage1_start':
@@ -305,14 +321,11 @@ function App() {
             break;
 
           case 'title_complete':
-            // Reload conversations to get updated title
             loadConversations();
             break;
 
           case 'complete':
-            // Stream complete, reload conversations list
             loadConversations();
-            // Feature 3: Update report_cycle if provided
             if (event.report_cycle !== undefined) {
               setCurrentConversation((prev) => ({
                 ...prev,
@@ -333,7 +346,6 @@ function App() {
       }, getToken);
     } catch (error) {
       console.error('Failed to send message:', error);
-      // Remove optimistic messages on error
       setCurrentConversation((prev) => ({
         ...prev,
         messages: prev.messages.slice(0, -2),
@@ -345,8 +357,6 @@ function App() {
   // Handle authentication state changes
   useEffect(() => {
     if (isLoaded && isSignedIn && userProfile && currentView !== 'chat') {
-      // User is signed in and has profile, go to chat
-      // loadConversations will be triggered by the dedicated effect when currentView changes
       setCurrentView('chat');
     }
   }, [isSignedIn, isLoaded, userProfile]);
@@ -357,11 +367,8 @@ function App() {
   };
 
   const handleProfileComplete = (profile) => {
-    // Save profile to localStorage for now (will move to backend later)
     setUserProfile(profile);
     localStorage.setItem('userProfile', JSON.stringify(profile));
-
-    // Show sign up page
     setCurrentView('signup');
   };
 
@@ -373,56 +380,8 @@ function App() {
     setCurrentView('signup');
   };
 
-  // View routing
-  if (!isLoaded || checkingProfile) {
-    // Show loading while Clerk initializes or checking profile
-    return (
-      <div style={{
-        minHeight: '100vh',
-        backgroundColor: '#791f85',
-        display: 'flex',
-        alignItems: 'center',
-        justifyContent: 'center',
-        color: '#FFFFFF',
-        fontSize: '18px'
-      }}>
-        Loading...
-      </div>
-    );
-  }
-
-  if (currentView === 'landing') {
-    return (
-      <OnboardingPage
-        logoText="Wellness Partner"
-        placeholder="whats on your mind?"
-        onSubmit={handleStartOnboarding}
-        onSignIn={handleSignIn}
-        onSignUp={handleSignUp}
-      />
-    );
-  }
-
-  if (currentView === 'questions') {
-    return (
-      <OnboardingQuestions onComplete={handleProfileComplete} />
-    );
-  }
-
-  if (currentView === 'signup') {
-    return (
-      <AccountCreation mode="signup" />
-    );
-  }
-
-  if (currentView === 'signin') {
-    return (
-      <AccountCreation mode="signin" />
-    );
-  }
-
-  // Main chat view
-  return (
+  // Main chat component wrapper
+  const ChatView = () => (
     <div className="app">
       {!sidebarOpen && (
         <button
@@ -446,6 +405,7 @@ function App() {
         onDeleteConversation={handleDeleteConversation}
         isOpen={sidebarOpen}
         onToggleSidebar={() => setSidebarOpen(!sidebarOpen)}
+        subscription={subscription}
       />
       <ChatInterface
         conversation={currentConversation}
@@ -453,8 +413,53 @@ function App() {
         isLoading={isLoading}
         onSubmitFollowUp={handleSubmitFollowUp}
         isFollowUpLoading={isFollowUpLoading}
+        subscription={subscription}
       />
     </div>
+  );
+
+  // Loading state
+  if (!isLoaded || checkingProfile) {
+    return (
+      <div style={{
+        minHeight: '100vh',
+        backgroundColor: '#791f85',
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+        color: '#FFFFFF',
+        fontSize: '18px'
+      }}>
+        Loading...
+      </div>
+    );
+  }
+
+  // Routing for payment flow and onboarding
+  return (
+    <Routes>
+      <Route path="/paywall" element={<Paywall />} />
+      <Route path="/payment-success" element={<PaymentSuccess />} />
+      <Route path="/*" element={
+        currentView === 'landing' ? (
+          <OnboardingPage
+            logoText="Wellness Partner"
+            placeholder="whats on your mind?"
+            onSubmit={handleStartOnboarding}
+            onSignIn={handleSignIn}
+            onSignUp={handleSignUp}
+          />
+        ) : currentView === 'questions' ? (
+          <OnboardingQuestions onComplete={handleProfileComplete} />
+        ) : currentView === 'signup' ? (
+          <AccountCreation mode="signup" />
+        ) : currentView === 'signin' ? (
+          <AccountCreation mode="signin" />
+        ) : (
+          <ChatView />
+        )
+      } />
+    </Routes>
   );
 }
 

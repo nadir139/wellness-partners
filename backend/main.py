@@ -1,6 +1,6 @@
 """FastAPI backend for LLM Council."""
 
-from fastapi import FastAPI, HTTPException, Header, Depends
+from fastapi import FastAPI, HTTPException, Header, Depends, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
@@ -13,6 +13,7 @@ from . import storage
 from . import config
 from .council import run_full_council, generate_conversation_title, stage1_collect_responses, stage2_collect_rankings, stage3_synthesize_final, calculate_aggregate_rankings
 from .auth import get_current_user, get_admin_key
+from .stripe_integration import create_checkout_session, verify_webhook_signature, get_all_plans
 
 app = FastAPI(title="LLM Council API")
 
@@ -53,6 +54,21 @@ class CreateProfileRequest(BaseModel):
     mood: str
 
 
+class CreateCheckoutRequest(BaseModel):
+    """Request to create a checkout session."""
+    tier: str  # "single_report", "monthly", or "yearly"
+
+
+class SubscriptionResponse(BaseModel):
+    """Subscription status response."""
+    user_id: str
+    tier: str
+    status: str
+    current_period_end: Optional[str]
+    created_at: str
+    updated_at: str
+
+
 class UserProfile(BaseModel):
     """User profile response."""
     user_id: str
@@ -87,8 +103,9 @@ async def root():
 
 @app.get("/api/conversations", response_model=List[ConversationMetadata])
 async def list_conversations(user: Dict[str, Any] = Depends(get_current_user)):
-    """List all conversations (metadata only). Requires authentication."""
-    return storage.list_conversations()
+    """List all conversations for the current user (metadata only). Requires authentication."""
+    # Filter conversations by user_id for access control
+    return storage.list_conversations(user_id=user["user_id"])
 
 
 @app.post("/api/conversations", response_model=Conversation)
@@ -96,9 +113,45 @@ async def create_conversation(
     request: CreateConversationRequest,
     user: Dict[str, Any] = Depends(get_current_user)
 ):
-    """Create a new conversation. Requires authentication."""
+    """
+    Create a new conversation. Requires authentication.
+
+    Feature 4 & 5: Enforces paywall - free users can only create 2 conversations.
+    When attempting to create a 3rd conversation, returns 402 Payment Required.
+    """
+    user_id = user["user_id"]
+
+    # Get user's subscription
+    subscription = storage.get_subscription(user_id)
+    if subscription is None:
+        # Create default free subscription
+        subscription = storage.create_subscription(user_id, tier="free")
+
+    # Feature 4: Paywall enforcement for free users
+    if subscription["tier"] == "free":
+        # Count existing conversations for this user
+        existing_conversations = storage.list_conversations(user_id=user_id)
+
+        # Free users can create max 2 conversations (FREE_CONVERSATION_LIMIT)
+        if len(existing_conversations) >= config.FREE_CONVERSATION_LIMIT:
+            raise HTTPException(
+                status_code=402,
+                detail={
+                    "error": "payment_required",
+                    "message": f"Free tier limited to {config.FREE_CONVERSATION_LIMIT} conversations. Please subscribe to continue.",
+                    "current_count": len(existing_conversations),
+                    "limit": config.FREE_CONVERSATION_LIMIT
+                }
+            )
+
+    # Create conversation with user_id and subscription tier
     conversation_id = str(uuid.uuid4())
-    conversation = storage.create_conversation(conversation_id)
+    conversation = storage.create_conversation(
+        conversation_id,
+        user_id=user_id,
+        subscription_tier=subscription["tier"]
+    )
+
     return conversation
 
 
@@ -111,6 +164,11 @@ async def get_conversation(
     conversation = storage.get_conversation(conversation_id)
     if conversation is None:
         raise HTTPException(status_code=404, detail="Conversation not found")
+
+    # Feature 4: Check ownership - users can only access their own conversations
+    if conversation.get("user_id") != user["user_id"]:
+        raise HTTPException(status_code=403, detail="Access denied")
+
     return conversation
 
 
@@ -130,6 +188,10 @@ async def send_message(
     conversation = storage.get_conversation(conversation_id)
     if conversation is None:
         raise HTTPException(status_code=404, detail="Conversation not found")
+
+    # Feature 4: Check ownership
+    if conversation.get("user_id") != user["user_id"]:
+        raise HTTPException(status_code=403, detail="Access denied")
 
     # Check if this is the first message
     is_first_message = len(conversation["messages"]) == 0
@@ -190,6 +252,10 @@ async def send_message_stream(
     conversation = storage.get_conversation(conversation_id)
     if conversation is None:
         raise HTTPException(status_code=404, detail="Conversation not found")
+
+    # Feature 4: Check ownership
+    if conversation.get("user_id") != user["user_id"]:
+        raise HTTPException(status_code=403, detail="Access denied")
 
     # Check if this is the first message
     is_first_message = len(conversation["messages"]) == 0
@@ -286,6 +352,10 @@ async def submit_follow_up(
     if conversation is None:
         raise HTTPException(status_code=404, detail="Conversation not found")
 
+    # Feature 4: Check ownership
+    if conversation.get("user_id") != user["user_id"]:
+        raise HTTPException(status_code=403, detail="Access denied")
+
     # Check if already submitted follow-up for this cycle
     if conversation.get("has_follow_up", False):
         raise HTTPException(
@@ -351,6 +421,14 @@ async def toggle_star_conversation(
     user: Dict[str, Any] = Depends(get_current_user)
 ):
     """Toggle the starred status of a conversation. Requires authentication."""
+    # Feature 4: Check ownership before allowing star
+    conversation = storage.get_conversation(conversation_id)
+    if conversation is None:
+        raise HTTPException(status_code=404, detail="Conversation not found")
+
+    if conversation.get("user_id") != user["user_id"]:
+        raise HTTPException(status_code=403, detail="Access denied")
+
     try:
         starred = storage.toggle_conversation_starred(conversation_id)
         return {"starred": starred}
@@ -365,6 +443,14 @@ async def update_conversation_title(
     user: Dict[str, Any] = Depends(get_current_user)
 ):
     """Update the title of a conversation. Requires authentication."""
+    # Feature 4: Check ownership before allowing rename
+    conversation = storage.get_conversation(conversation_id)
+    if conversation is None:
+        raise HTTPException(status_code=404, detail="Conversation not found")
+
+    if conversation.get("user_id") != user["user_id"]:
+        raise HTTPException(status_code=403, detail="Access denied")
+
     try:
         storage.update_conversation_title(conversation_id, request.title)
         return {"title": request.title}
@@ -378,6 +464,14 @@ async def delete_conversation(
     user: Dict[str, Any] = Depends(get_current_user)
 ):
     """Delete a conversation. Requires authentication."""
+    # Feature 4: Check ownership before allowing delete
+    conversation = storage.get_conversation(conversation_id)
+    if conversation is None:
+        raise HTTPException(status_code=404, detail="Conversation not found")
+
+    if conversation.get("user_id") != user["user_id"]:
+        raise HTTPException(status_code=403, detail="Access denied")
+
     storage.delete_conversation(conversation_id)
     return {"deleted": True}
 
@@ -517,6 +611,175 @@ async def update_profile(
         return profile
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
+
+
+# Subscription and Payment Endpoints (Feature 4)
+
+
+@app.get("/api/subscription/plans")
+async def get_subscription_plans():
+    """
+    Get all available subscription plans.
+    Public endpoint - no authentication required.
+    """
+    return get_all_plans()
+
+
+@app.get("/api/subscription", response_model=SubscriptionResponse)
+async def get_user_subscription(user: Dict[str, Any] = Depends(get_current_user)):
+    """
+    Get the current user's subscription status.
+    Creates a free subscription if none exists.
+    """
+    subscription = storage.get_subscription(user["user_id"])
+
+    if subscription is None:
+        # Create default free subscription
+        subscription = storage.create_subscription(user["user_id"], tier="free")
+
+    return subscription
+
+
+@app.post("/api/subscription/checkout")
+async def create_subscription_checkout(
+    request: CreateCheckoutRequest,
+    user: Dict[str, Any] = Depends(get_current_user)
+):
+    """
+    Create a Stripe checkout session for a subscription purchase.
+    Returns the checkout session URL to redirect the user.
+    """
+    # Validate tier
+    valid_tiers = ["single_report", "monthly", "yearly"]
+    if request.tier not in valid_tiers:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Invalid tier. Must be one of: {', '.join(valid_tiers)}"
+        )
+
+    # Create checkout session with frontend URLs
+    # TODO: Update these URLs for production deployment
+    frontend_base = "http://localhost:5173"
+    success_url = f"{frontend_base}/payment-success?session_id={{CHECKOUT_SESSION_ID}}"
+    cancel_url = f"{frontend_base}/paywall"
+
+    try:
+        session = await create_checkout_session(
+            tier=request.tier,
+            user_id=user["user_id"],
+            success_url=success_url,
+            cancel_url=cancel_url
+        )
+
+        return {
+            "checkout_url": session["url"],
+            "session_id": session["session_id"]
+        }
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+@app.post("/api/webhooks/stripe")
+async def stripe_webhook(request: Request):
+    """
+    Handle Stripe webhook events for payment processing.
+
+    This endpoint:
+    1. Verifies the webhook signature
+    2. Processes payment events (checkout.session.completed, etc.)
+    3. Updates user subscription status
+    4. Restores expired reports for paid users (Feature 5)
+    """
+    # Get raw body and signature
+    payload = await request.body()
+    signature = request.headers.get("stripe-signature")
+
+    if not signature:
+        raise HTTPException(status_code=400, detail="Missing stripe-signature header")
+
+    # Verify webhook signature
+    event = verify_webhook_signature(payload, signature)
+    if event is None:
+        raise HTTPException(status_code=400, detail="Invalid webhook signature")
+
+    # Handle different event types
+    event_type = event["type"]
+
+    if event_type == "checkout.session.completed":
+        # Payment successful
+        session = event["data"]["object"]
+        user_id = session["metadata"]["user_id"]
+        tier = session["metadata"]["tier"]
+
+        # Get or create subscription
+        subscription = storage.get_subscription(user_id)
+        if subscription is None:
+            subscription = storage.create_subscription(user_id, tier=tier)
+        else:
+            # Update existing subscription
+            update_data = {
+                "tier": tier,
+                "status": "active"
+            }
+
+            # For recurring subscriptions, store Stripe subscription ID
+            if tier in ["monthly", "yearly"]:
+                update_data["stripe_subscription_id"] = session.get("subscription")
+                # current_period_end will be set by subscription.created webhook
+
+            storage.update_subscription(user_id, update_data)
+
+        # Feature 5: Auto-restore all expired reports when user subscribes
+        storage.restore_all_expired_reports(user_id)
+
+    elif event_type == "customer.subscription.created":
+        # Subscription created (for recurring plans)
+        subscription_obj = event["data"]["object"]
+        stripe_sub_id = subscription_obj["id"]
+        current_period_end = subscription_obj["current_period_end"]
+
+        # Convert timestamp to ISO format
+        from datetime import datetime
+        period_end_iso = datetime.fromtimestamp(current_period_end).isoformat()
+
+        # Update subscription by Stripe ID
+        storage.update_subscription_by_stripe_id(
+            stripe_sub_id,
+            {"current_period_end": period_end_iso}
+        )
+
+    elif event_type == "customer.subscription.updated":
+        # Subscription updated (renewal, plan change, etc.)
+        subscription_obj = event["data"]["object"]
+        stripe_sub_id = subscription_obj["id"]
+        status = subscription_obj["status"]
+        current_period_end = subscription_obj["current_period_end"]
+
+        # Convert timestamp to ISO format
+        from datetime import datetime
+        period_end_iso = datetime.fromtimestamp(current_period_end).isoformat()
+
+        # Update subscription
+        storage.update_subscription_by_stripe_id(
+            stripe_sub_id,
+            {
+                "status": status,
+                "current_period_end": period_end_iso
+            }
+        )
+
+    elif event_type == "customer.subscription.deleted":
+        # Subscription cancelled/expired
+        subscription_obj = event["data"]["object"]
+        stripe_sub_id = subscription_obj["id"]
+
+        # Update subscription status
+        storage.update_subscription_by_stripe_id(
+            stripe_sub_id,
+            {"status": "cancelled"}
+        )
+
+    return {"received": True}
 
 
 if __name__ == "__main__":

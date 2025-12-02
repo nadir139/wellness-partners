@@ -97,6 +97,7 @@ export const api = {
 
   /**
    * Create a new conversation.
+   * Feature 4: Throws error with status code for paywall detection.
    */
   async createConversation(getToken) {
     const response = await fetch(`${API_BASE}/api/conversations`, {
@@ -105,6 +106,11 @@ export const api = {
       body: JSON.stringify({}),
     });
     if (!response.ok) {
+      // Feature 4: Include status code in error for paywall detection
+      if (response.status === 402) {
+        const error = await response.json();
+        throw new Error(`402: ${error.detail?.message || 'Payment required'}`);
+      }
       throw new Error('Failed to create conversation');
     }
     return response.json();
@@ -265,6 +271,53 @@ export const api = {
     if (!response.ok) {
       const error = await response.json();
       throw new Error(error.detail || 'Failed to submit follow-up');
+    }
+    return response.json();
+  },
+
+  // Subscription and Payment Methods (Feature 4)
+
+  /**
+   * Get all available subscription plans.
+   * Public endpoint - no authentication required.
+   */
+  async getSubscriptionPlans() {
+    const response = await fetch(`${API_BASE}/api/subscription/plans`);
+    if (!response.ok) {
+      throw new Error('Failed to get subscription plans');
+    }
+    return response.json();
+  },
+
+  /**
+   * Get the current user's subscription status.
+   */
+  async getSubscription(getToken) {
+    const response = await fetch(`${API_BASE}/api/subscription`, {
+      headers: await getHeaders(getToken),
+    });
+    if (!response.ok) {
+      throw new Error('Failed to get subscription');
+    }
+    return response.json();
+  },
+
+  /**
+   * Create a Stripe checkout session for a subscription purchase.
+   *
+   * @param {string} tier - Subscription tier (single_report, monthly, yearly)
+   * @param {function} getToken - Function to get auth token
+   * @returns {Promise<object>} - Checkout session with URL
+   */
+  async createCheckoutSession(tier, getToken) {
+    const response = await fetch(`${API_BASE}/api/subscription/checkout`, {
+      method: 'POST',
+      headers: await getHeaders(getToken),
+      body: JSON.stringify({ tier }),
+    });
+    if (!response.ok) {
+      const error = await response.json();
+      throw new Error(error.detail || 'Failed to create checkout session');
     }
     return response.json();
   },

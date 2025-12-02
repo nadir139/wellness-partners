@@ -12,10 +12,21 @@ export default function Sidebar({
   onDeleteConversation,
   isOpen = true,
   onToggleSidebar,
+  subscription, // Feature 4: Subscription data
 }) {
   const { signOut } = useClerk();
   const [openMenuId, setOpenMenuId] = useState(null);
   const menuRef = useRef(null);
+
+  // Feature 5: Calculate days remaining until expiration
+  const getDaysRemaining = (expiresAt) => {
+    if (!expiresAt) return null;
+    const now = new Date();
+    const expiry = new Date(expiresAt);
+    const diffTime = expiry - now;
+    const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+    return diffDays > 0 ? diffDays : 0;
+  };
 
   // Close menu when clicking outside
   useEffect(() => {
@@ -63,58 +74,74 @@ export default function Sidebar({
     setOpenMenuId(null);
   };
 
-  const renderConversation = (conv) => (
-    <div
-      key={conv.id}
-      className={`conversation-item ${
-        conv.id === currentConversationId ? 'active' : ''
-      }`}
-      onClick={() => onSelectConversation(conv.id)}
-    >
-      <div className="conversation-content">
-        <div className="conversation-title">
-          {conv.title || 'New Conversation'}
-        </div>
-        <div className="conversation-meta">
-          {conv.message_count} messages
-        </div>
-      </div>
-      <div className="conversation-actions">
-        <button
-          className="menu-button"
-          onClick={(e) => handleMenuClick(e, conv.id)}
-          aria-label="More actions"
-        >
-          ⋯
-        </button>
-        {openMenuId === conv.id && (
-          <div className="dropdown-menu" ref={menuRef}>
-            <button
-              className="dropdown-item"
-              onClick={(e) => handleStar(e, conv)}
-            >
-              <span className="dropdown-icon">⭐</span>
-              {conv.starred ? 'Unstar' : 'Star'}
-            </button>
-            <button
-              className="dropdown-item"
-              onClick={(e) => handleRename(e, conv)}
-            >
-              <span className="dropdown-icon">✏️</span>
-              Rename
-            </button>
-            <button
-              className="dropdown-item delete"
-              onClick={(e) => handleDelete(e, conv)}
-            >
-              <span className="dropdown-icon">🗑️</span>
-              Delete
-            </button>
+  const renderConversation = (conv) => {
+    // Feature 5: Check expiration status
+    const daysRemaining = getDaysRemaining(conv.expires_at);
+    const isExpiring = daysRemaining !== null && daysRemaining <= 7;
+    const isExpired = daysRemaining !== null && daysRemaining <= 0;
+
+    return (
+      <div
+        key={conv.id}
+        className={`conversation-item ${
+          conv.id === currentConversationId ? 'active' : ''
+        } ${isExpired ? 'expired' : isExpiring ? 'expiring' : ''}`}
+        onClick={() => onSelectConversation(conv.id)}
+      >
+        <div className="conversation-content">
+          <div className="conversation-title">
+            {conv.title || 'New Conversation'}
           </div>
-        )}
+          <div className="conversation-meta">
+            {conv.message_count} messages
+            {/* Feature 5: Show expiration warning */}
+            {isExpired && (
+              <span className="expiration-badge expired">Expired</span>
+            )}
+            {isExpiring && !isExpired && (
+              <span className="expiration-badge expiring">
+                {daysRemaining} {daysRemaining === 1 ? 'day' : 'days'} left
+              </span>
+            )}
+          </div>
+        </div>
+        <div className="conversation-actions">
+          <button
+            className="menu-button"
+            onClick={(e) => handleMenuClick(e, conv.id)}
+            aria-label="More actions"
+          >
+            ⋯
+          </button>
+          {openMenuId === conv.id && (
+            <div className="dropdown-menu" ref={menuRef}>
+              <button
+                className="dropdown-item"
+                onClick={(e) => handleStar(e, conv)}
+              >
+                <span className="dropdown-icon">⭐</span>
+                {conv.starred ? 'Unstar' : 'Star'}
+              </button>
+              <button
+                className="dropdown-item"
+                onClick={(e) => handleRename(e, conv)}
+              >
+                <span className="dropdown-icon">✏️</span>
+                Rename
+              </button>
+              <button
+                className="dropdown-item delete"
+                onClick={(e) => handleDelete(e, conv)}
+              >
+                <span className="dropdown-icon">🗑️</span>
+                Delete
+              </button>
+            </div>
+          )}
+        </div>
       </div>
-    </div>
-  );
+    );
+  };
 
   return (
     <div className={`sidebar ${!isOpen ? 'collapsed' : ''}`}>
@@ -160,6 +187,23 @@ export default function Sidebar({
       </div>
 
       <div className="sidebar-footer">
+        {/* Feature 4: Display subscription status */}
+        {subscription && (
+          <div className="subscription-status">
+            <div className="subscription-tier">
+              {subscription.tier === 'free' && '🆓 Free Tier'}
+              {subscription.tier === 'single_report' && '📄 Single Report'}
+              {subscription.tier === 'monthly' && '⭐ Monthly Plan'}
+              {subscription.tier === 'yearly' && '🌟 Yearly Plan'}
+            </div>
+            {subscription.tier === 'free' && (
+              <div className="subscription-info">
+                {conversations.length}/2 conversations used
+              </div>
+            )}
+          </div>
+        )}
+
         <button
           className="logout-button"
           onClick={() => signOut()}

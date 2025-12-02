@@ -12,6 +12,14 @@ OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY")
 # Set this in your .env file: ADMIN_API_KEY=your_secret_key_here
 ADMIN_API_KEY = os.getenv("ADMIN_API_KEY", "change-this-in-production")
 
+# Stripe API keys for payment processing (Feature 4)
+STRIPE_SECRET_KEY = os.getenv("STRIPE_SECRET_KEY")
+STRIPE_PUBLISHABLE_KEY = os.getenv("STRIPE_PUBLISHABLE_KEY")
+STRIPE_WEBHOOK_SECRET = os.getenv("STRIPE_WEBHOOK_SECRET")
+
+# Clerk authentication
+CLERK_SECRET_KEY = os.getenv("CLERK_SECRET_KEY")
+
 # Wellness council members - 5 specialized professional roles
 # Using role-specific identifiers for the same base model
 COUNCIL_MODELS = [
@@ -119,3 +127,8 @@ This is NOT medical advice, therapy, or professional healthcare.
 Always consult licensed healthcare professionals for medical, mental health, or wellness concerns.
 If you're in crisis, please contact emergency services or a crisis hotline immediately.
 """
+
+# Subscription limits for freemium model (Feature 4 & 5)
+FREE_CONVERSATION_LIMIT = 2  # Free users can create 2 conversations before paywall
+FREE_REPORT_EXPIRATION_DAYS = 7  # Free reports expire after 7 days
+SINGLE_REPORT_INTERACTIONS = 5  # Single report purchase gives 5 back-and-forth interactions

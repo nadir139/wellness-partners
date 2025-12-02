@@ -145,6 +145,39 @@
 .conversation-meta {
   color: #999;
   font-size: 12px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+/* Feature 5: Expiration badges */
+.expiration-badge {
+  font-size: 10px;
+  padding: 2px 6px;
+  border-radius: 4px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.3px;
+}
+
+.expiration-badge.expiring {
+  background: #fff3cd;
+  color: #856404;
+}
+
+.expiration-badge.expired {
+  background: #f8d7da;
+  color: #721c24;
+}
+
+.conversation-item.expiring {
+  border-left: 3px solid #ffc107;
+}
+
+.conversation-item.expired {
+  border-left: 3px solid #dc3545;
+  opacity: 0.7;
 }
 
 /* Three-dot menu button */
@@ -230,6 +263,27 @@
   padding: 16px;
   border-top: 1px solid #e0e0e0;
   background: #f8f8f8;
+}
+
+/* Feature 4: Subscription status display */
+.subscription-status {
+  background: #ffffff;
+  border: 1px solid #d0d0d0;
+  border-radius: 8px;
+  padding: 12px;
+  margin-bottom: 12px;
+}
+
+.subscription-tier {
+  font-size: 14px;
+  font-weight: 600;
+  color: #333;
+  margin-bottom: 4px;
+}
+
+.subscription-info {
+  font-size: 12px;
+  color: #666;
 }
 
 .logout-button {
