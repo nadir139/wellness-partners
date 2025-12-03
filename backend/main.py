@@ -800,7 +800,16 @@ async def stripe_webhook(request: Request):
         # Get or create subscription
         subscription = storage.get_subscription(user_id)
         if subscription is None:
+            # Create new subscription
             subscription = storage.create_subscription(user_id, tier=tier)
+            # Now update with Stripe IDs (can't pass to create_subscription due to schema)
+            update_data = {}
+            if stripe_customer_id:
+                update_data["stripe_customer_id"] = stripe_customer_id
+            if tier in ["monthly", "yearly"]:
+                update_data["stripe_subscription_id"] = session.get("subscription")
+            if update_data:
+                storage.update_subscription(user_id, update_data)
         else:
             # Update existing subscription
             update_data = {
