@@ -321,4 +321,33 @@ export const api = {
     }
     return response.json();
   },
+
+  /**
+   * Cancel recurring subscription.
+   */
+  async cancelSubscription(getToken) {
+    const response = await fetch(`${API_BASE}/api/subscription/cancel`, {
+      method: 'POST',
+      headers: await getHeaders(getToken),
+    });
+    if (!response.ok) {
+      const error = await response.json();
+      throw new Error(error.detail || 'Failed to cancel subscription');
+    }
+    return response.json();
+  },
+
+  /**
+   * Get Stripe Customer Portal URL.
+   */
+  async getCustomerPortal(getToken) {
+    const response = await fetch(`${API_BASE}/api/subscription/portal`, {
+      headers: await getHeaders(getToken),
+    });
+    if (!response.ok) {
+      const error = await response.json();
+      throw new Error(error.detail || 'Failed to get customer portal');
+    }
+    return response.json();
+  },
 };

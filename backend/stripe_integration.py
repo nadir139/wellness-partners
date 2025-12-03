@@ -166,3 +166,46 @@ def get_all_plans() -> Dict[str, Dict[str, Any]]:
         Dict of all subscription plans
     """
     return SUBSCRIPTION_PLANS
+
+
+def cancel_subscription(stripe_subscription_id: str) -> None:
+    """
+    Cancel a Stripe subscription at the end of the current billing period.
+
+    Args:
+        stripe_subscription_id: The Stripe subscription ID to cancel
+
+    Raises:
+        ValueError: If Stripe API fails or subscription doesn't exist
+    """
+    try:
+        stripe.Subscription.modify(
+            stripe_subscription_id,
+            cancel_at_period_end=True
+        )
+    except stripe.error.StripeError as e:
+        raise ValueError(f"Failed to cancel subscription: {str(e)}")
+
+
+def create_customer_portal_session(stripe_customer_id: str, return_url: str) -> str:
+    """
+    Create a Stripe Customer Portal session for managing payment methods and subscriptions.
+
+    Args:
+        stripe_customer_id: The Stripe customer ID
+        return_url: URL to redirect to after the customer leaves the portal
+
+    Returns:
+        The Customer Portal session URL
+
+    Raises:
+        ValueError: If Stripe API fails or customer doesn't exist
+    """
+    try:
+        session = stripe.billing_portal.Session.create(
+            customer=stripe_customer_id,
+            return_url=return_url,
+        )
+        return session.url
+    except stripe.error.StripeError as e:
+        raise ValueError(f"Failed to create customer portal session: {str(e)}")

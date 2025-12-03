@@ -13,7 +13,7 @@ from . import storage
 from . import config
 from .council import run_full_council, generate_conversation_title, stage1_collect_responses, stage2_collect_rankings, stage3_synthesize_final, calculate_aggregate_rankings
 from .auth import get_current_user, get_admin_key
-from .stripe_integration import create_checkout_session, verify_webhook_signature, get_all_plans
+from .stripe_integration import create_checkout_session, verify_webhook_signature, get_all_plans, cancel_subscription, create_customer_portal_session
 
 app = FastAPI(title="LLM Council API")
 
@@ -679,6 +679,91 @@ async def create_subscription_checkout(
         raise HTTPException(status_code=400, detail=str(e))
 
 
+@app.post("/api/subscription/cancel")
+async def cancel_user_subscription(user: Dict[str, Any] = Depends(get_current_user)):
+    """
+    Cancel the user's recurring subscription at the end of the current billing period.
+    Only works for active recurring subscriptions (monthly, yearly).
+    """
+    # Get user's subscription
+    subscription = storage.get_subscription(user["user_id"])
+
+    if subscription is None:
+        raise HTTPException(status_code=404, detail="No subscription found")
+
+    # Check if user has an active recurring subscription
+    if subscription.get("tier") not in ["monthly", "yearly"]:
+        raise HTTPException(
+            status_code=400,
+            detail="Only recurring subscriptions can be cancelled"
+        )
+
+    if subscription.get("status") != "active":
+        raise HTTPException(
+            status_code=400,
+            detail="Subscription is not active"
+        )
+
+    # Get Stripe subscription ID
+    stripe_sub_id = subscription.get("stripe_subscription_id")
+    if not stripe_sub_id:
+        raise HTTPException(
+            status_code=400,
+            detail="No Stripe subscription ID found"
+        )
+
+    # Cancel the subscription in Stripe
+    try:
+        cancel_subscription(stripe_sub_id)
+
+        # Update local status to reflect cancellation
+        storage.update_subscription(
+            user["user_id"],
+            {"status": "cancelled"}
+        )
+
+        return {
+            "message": "Subscription cancelled successfully. Access will continue until the end of the current billing period.",
+            "subscription": storage.get_subscription(user["user_id"])
+        }
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+@app.get("/api/subscription/portal")
+async def get_subscription_portal(user: Dict[str, Any] = Depends(get_current_user)):
+    """
+    Get the Stripe Customer Portal URL for managing payment methods.
+    Creates a session that redirects back to the settings page.
+    """
+    # Get user's subscription
+    subscription = storage.get_subscription(user["user_id"])
+
+    if subscription is None:
+        raise HTTPException(status_code=404, detail="No subscription found")
+
+    # Check if user has a Stripe customer ID
+    stripe_customer_id = subscription.get("stripe_customer_id")
+    if not stripe_customer_id:
+        raise HTTPException(
+            status_code=400,
+            detail="No payment method on file. Please purchase a plan first."
+        )
+
+    # Create Customer Portal session
+    frontend_base = "http://localhost:5173"
+    return_url = f"{frontend_base}/settings"
+
+    try:
+        portal_url = create_customer_portal_session(stripe_customer_id, return_url)
+
+        return {
+            "portal_url": portal_url
+        }
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
 @app.post("/api/webhooks/stripe")
 async def stripe_webhook(request: Request):
     """
@@ -710,6 +795,7 @@ async def stripe_webhook(request: Request):
         session = event["data"]["object"]
         user_id = session["metadata"]["user_id"]
         tier = session["metadata"]["tier"]
+        stripe_customer_id = session.get("customer")  # Capture customer ID for portal access
 
         # Get or create subscription
         subscription = storage.get_subscription(user_id)
@@ -721,6 +807,10 @@ async def stripe_webhook(request: Request):
                 "tier": tier,
                 "status": "active"
             }
+
+            # Store Stripe customer ID for Customer Portal access
+            if stripe_customer_id:
+                update_data["stripe_customer_id"] = stripe_customer_id
 
             # For recurring subscriptions, store Stripe subscription ID
             if tier in ["monthly", "yearly"]:

@@ -286,7 +286,12 @@
   color: #666;
 }
 
-.logout-button {
+/* Settings dropdown container */
+.settings-container {
+  position: relative;
+}
+
+.settings-button {
   width: 100%;
   padding: 10px;
   background: #ffffff;
@@ -303,12 +308,87 @@
   transition: all 0.2s;
 }
 
-.logout-button:hover {
+.settings-button:hover {
   background: #f5f5f5;
   border-color: #999;
   color: #333;
 }
 
-.logout-icon {
+.settings-icon {
   font-size: 16px;
+  display: inline-flex;
+  align-items: center;
+}
+
+/* Settings dropdown menu */
+.settings-dropdown {
+  position: absolute;
+  bottom: 100%;
+  left: 0;
+  right: 0;
+  margin-bottom: 8px;
+  background: white;
+  border: 1px solid #d0d0d0;
+  border-radius: 8px;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+  z-index: 1000;
+  overflow: hidden;
+}
+
+.settings-email {
+  padding: 12px 14px;
+  font-size: 12px;
+  color: #666;
+  background: #f8f8f8;
+  border-bottom: 1px solid #e0e0e0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.settings-item {
+  display: flex;
+  align-items: center;
+  width: 100%;
+  padding: 10px 14px;
+  background: none;
+  border: none;
+  text-align: left;
+  cursor: pointer;
+  font-size: 14px;
+  color: #333;
+  transition: background 0.2s;
+}
+
+.settings-item:hover:not(:disabled) {
+  background: #f5f5f5;
+}
+
+.settings-item:disabled {
+  color: #999;
+  cursor: not-allowed;
+  opacity: 0.6;
+}
+
+.settings-item.logout {
+  color: #d32f2f;
+}
+
+.settings-item.logout:hover {
+  background: #fdeaea;
+}
+
+.item-icon {
+  margin-right: 10px;
+  font-size: 16px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+}
+
+.settings-divider {
+  height: 1px;
+  background: #e0e0e0;
+  margin: 4px 0;
 }

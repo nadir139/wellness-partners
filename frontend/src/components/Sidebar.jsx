@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef } from 'react';
-import { useClerk } from '@clerk/clerk-react';
+import { useClerk, useUser } from '@clerk/clerk-react';
+import { useNavigate } from 'react-router-dom';
 import './Sidebar.css';
 
 export default function Sidebar({
@@ -15,8 +16,12 @@ export default function Sidebar({
   subscription, // Feature 4: Subscription data
 }) {
   const { signOut } = useClerk();
+  const { user } = useUser();
+  const navigate = useNavigate();
   const [openMenuId, setOpenMenuId] = useState(null);
+  const [settingsMenuOpen, setSettingsMenuOpen] = useState(false);
   const menuRef = useRef(null);
+  const settingsMenuRef = useRef(null);
 
   // Feature 5: Calculate days remaining until expiration
   const getDaysRemaining = (expiresAt) => {
@@ -33,6 +38,9 @@ export default function Sidebar({
     function handleClickOutside(event) {
       if (menuRef.current && !menuRef.current.contains(event.target)) {
         setOpenMenuId(null);
+      }
+      if (settingsMenuRef.current && !settingsMenuRef.current.contains(event.target)) {
+        setSettingsMenuOpen(false);
       }
     }
 
@@ -204,14 +212,81 @@ export default function Sidebar({
           </div>
         )}
 
-        <button
-          className="logout-button"
-          onClick={() => signOut()}
-          aria-label="Log out"
-        >
-          <span className="logout-icon">🚪</span>
-          Log Out
-        </button>
+        {/* Settings menu */}
+        <div className="settings-container">
+          <button
+            className="settings-button"
+            onClick={() => setSettingsMenuOpen(!settingsMenuOpen)}
+            aria-label="Settings"
+          >
+            <span className="settings-icon">⚙️</span>
+            Settings
+          </button>
+
+          {settingsMenuOpen && (
+            <div className="settings-dropdown" ref={settingsMenuRef}>
+              {/* Email display */}
+              <div className="settings-email">
+                {user?.primaryEmailAddress?.emailAddress}
+              </div>
+
+              <div className="settings-divider"></div>
+
+              {/* Settings link */}
+              <button
+                className="settings-item"
+                onClick={() => {
+                  navigate('/settings');
+                  setSettingsMenuOpen(false);
+                }}
+              >
+                <span className="item-icon">⚙️</span>
+                Manage Subscription
+              </button>
+
+              {/* Language (placeholder - not implemented) */}
+              <button className="settings-item" disabled>
+                <span className="item-icon">🌐</span>
+                Language
+              </button>
+
+              {/* Help */}
+              <button
+                className="settings-item"
+                onClick={() => {
+                  window.open('https://your-help-url.com', '_blank');
+                  setSettingsMenuOpen(false);
+                }}
+              >
+                <span className="item-icon">❓</span>
+                Get Help
+              </button>
+
+              {/* Learn More */}
+              <button
+                className="settings-item"
+                onClick={() => {
+                  window.open('https://your-learn-more-url.com', '_blank');
+                  setSettingsMenuOpen(false);
+                }}
+              >
+                <span className="item-icon">📚</span>
+                Learn More
+              </button>
+
+              <div className="settings-divider"></div>
+
+              {/* Logout - moved from standalone button */}
+              <button
+                className="settings-item logout"
+                onClick={() => signOut()}
+              >
+                <span className="item-icon">🚪</span>
+                Log Out
+              </button>
+            </div>
+          )}
+        </div>
       </div>
     </div>
   )

@@ -8,6 +8,7 @@ import OnboardingQuestions from './components/OnboardingQuestions';
 import AccountCreation from './components/AccountCreation';
 import Paywall from './components/Paywall';
 import PaymentSuccess from './components/PaymentSuccess';
+import Settings from './components/Settings';
 import { api } from './api';
 import './App.css';
 
@@ -440,6 +441,7 @@ function App() {
     <Routes>
       <Route path="/paywall" element={<Paywall />} />
       <Route path="/payment-success" element={<PaymentSuccess />} />
+      <Route path="/settings" element={<Settings />} />
       <Route path="/*" element={
         currentView === 'landing' ? (
           <OnboardingPage
