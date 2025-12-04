@@ -2,16 +2,46 @@
 Authentication middleware using Supabase Auth
 
 Verifies JWT tokens issued by Supabase and extracts user information.
-Supabase uses HS256 (symmetric) JWT signing with a secret key.
+Supabase can use either:
+- HS256 (symmetric) with JWT secret for older/self-hosted instances
+- ES256 (asymmetric ECDSA) with JWKS for newer cloud instances
+
+This module auto-detects the algorithm and handles both cases.
 """
 import jwt
-import os
+import json
+import base64
+import requests
+from jwt import PyJWKClient
 from typing import Optional
 from fastapi import HTTPException, Header
 from . import config
 
-# Supabase JWT configuration
+# Supabase configuration
+SUPABASE_URL = config.SUPABASE_URL
 SUPABASE_JWT_SECRET = config.SUPABASE_JWT_SECRET
+
+# JWKS client for ES256 tokens (caches keys automatically)
+# Supabase JWKS endpoint: {supabase_url}/auth/v1/.well-known/jwks.json
+_jwks_url = f"{SUPABASE_URL}/auth/v1/.well-known/jwks.json"
+_jwks_client = None
+
+def _get_jwks_client():
+    """Get or create JWKS client (lazy initialization with caching)."""
+    global _jwks_client
+    if _jwks_client is None:
+        _jwks_client = PyJWKClient(_jwks_url)
+    return _jwks_client
+
+def _decode_jwt_header(token: str) -> dict:
+    """Decode JWT header without verification to check algorithm."""
+    try:
+        header_b64 = token.split('.')[0]
+        # Add padding if needed
+        header_b64 += '=' * (4 - len(header_b64) % 4) if len(header_b64) % 4 else ''
+        return json.loads(base64.urlsafe_b64decode(header_b64))
+    except:
+        return {}
 
 
 async def get_current_user(authorization: Optional[str] = Header(None)):
@@ -54,13 +84,34 @@ async def get_current_user(authorization: Optional[str] = Header(None)):
 
     # Verify and decode the Supabase JWT token
     try:
-        # Supabase uses HS256 (symmetric signing) with JWT secret
-        payload = jwt.decode(
-            token,
-            SUPABASE_JWT_SECRET,
-            algorithms=["HS256"],
-            options={"verify_aud": False}  # Supabase doesn't use audience claim
-        )
+        # Check token header to determine algorithm
+        header = _decode_jwt_header(token)
+        alg = header.get("alg", "HS256")
+
+        if alg == "ES256":
+            # ES256 (ECDSA) - fetch public key from JWKS endpoint
+            jwks_client = _get_jwks_client()
+            signing_key = jwks_client.get_signing_key_from_jwt(token)
+            payload = jwt.decode(
+                token,
+                signing_key.key,
+                algorithms=["ES256"],
+                options={
+                    "verify_aud": False,  # Supabase audience varies
+                    "verify_iss": False,  # Issuer check not needed
+                }
+            )
+        else:
+            # HS256/HS384/HS512 (HMAC) - use JWT secret directly
+            payload = jwt.decode(
+                token,
+                SUPABASE_JWT_SECRET,
+                algorithms=["HS256", "HS384", "HS512"],
+                options={
+                    "verify_aud": False,  # Supabase audience varies
+                    "verify_iss": False,  # Issuer check not needed
+                }
+            )
 
         # Extract user information from JWT payload
         user_id = payload.get("sub")  # Supabase user ID (UUID)
