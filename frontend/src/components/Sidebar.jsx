@@ -18,6 +18,7 @@ export default function Sidebar({
   onToggleSidebar,
   subscription, // Feature 4: Subscription data
   user, // Supabase user object (passed from App.jsx)
+  onOpenSettings, // Callback to open settings modal
 }) {
   const navigate = useNavigate();
 
@@ -248,8 +249,8 @@ export default function Sidebar({
               <button
                 className="settings-item"
                 onClick={() => {
-                  navigate('/settings');
                   setSettingsMenuOpen(false);
+                  onOpenSettings?.();
                 }}
               >
                 <span className="item-icon">⚙️</span>

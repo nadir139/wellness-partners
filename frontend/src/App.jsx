@@ -41,6 +41,7 @@ function App() {
   const [isLoading, setIsLoading] = useState(false);
   const [sidebarOpen, setSidebarOpen] = useState(true);
   const [isFollowUpLoading, setIsFollowUpLoading] = useState(false);
+  const [settingsOpen, setSettingsOpen] = useState(false);
 
   // Feature 4: Subscription state
   const [subscription, setSubscription] = useState(null);
@@ -50,6 +51,10 @@ function App() {
   const [userProfile, setUserProfile] = useState(null);
   const [hasBackendProfile, setHasBackendProfile] = useState(false);
   const [checkingProfile, setCheckingProfile] = useState(true);
+
+  // Auth modal state
+  const [authModalOpen, setAuthModalOpen] = useState(false);
+  const [authMode, setAuthMode] = useState('signup'); // 'signup' or 'signin'
 
   // Initialize Supabase auth listener
   // This runs once on mount and sets up the authentication state listener
@@ -98,10 +103,10 @@ function App() {
       }
 
       if (!isSignedIn) {
-        // User is not signed in - only reset to landing if not already on auth pages
+        // User is not signed in - only reset to landing if not already on questions page
         setCurrentView((prev) => {
-          // Keep signin/signup views, otherwise go to landing
-          if (prev === 'signin' || prev === 'signup' || prev === 'questions') {
+          // Keep questions view, otherwise go to landing
+          if (prev === 'questions') {
             return prev;
           }
           return 'landing';
@@ -417,15 +422,27 @@ function App() {
   const handleProfileComplete = (profile) => {
     setUserProfile(profile);
     localStorage.setItem('userProfile', JSON.stringify(profile));
-    setCurrentView('signup');
+    // Open signup modal after completing questions
+    setAuthMode('signup');
+    setAuthModalOpen(true);
   };
 
   const handleSignIn = () => {
-    setCurrentView('signin');
+    setAuthMode('signin');
+    setAuthModalOpen(true);
   };
 
   const handleSignUp = () => {
-    setCurrentView('signup');
+    setAuthMode('signup');
+    setAuthModalOpen(true);
+  };
+
+  const handleAuthModalClose = () => {
+    setAuthModalOpen(false);
+  };
+
+  const handleAuthSwitchMode = (mode) => {
+    setAuthMode(mode);
   };
 
   // Main chat component wrapper
@@ -455,7 +472,9 @@ function App() {
         onToggleSidebar={() => setSidebarOpen(!sidebarOpen)}
         subscription={subscription}
         user={user}
+        onOpenSettings={() => setSettingsOpen(true)}
       />
+      <Settings isOpen={settingsOpen} onClose={() => setSettingsOpen(false)} />
       <ChatInterface
         conversation={currentConversation}
         onSendMessage={handleSendMessage}
@@ -489,22 +508,33 @@ function App() {
     <Routes>
       <Route path="/paywall" element={<Paywall />} />
       <Route path="/payment-success" element={<PaymentSuccess />} />
-      <Route path="/settings" element={<Settings />} />
       <Route path="/*" element={
         currentView === 'landing' ? (
-          <OnboardingPage
-            logoText="Wellness Partner"
-            placeholder="whats on your mind?"
-            onSubmit={handleStartOnboarding}
-            onSignIn={handleSignIn}
-            onSignUp={handleSignUp}
-          />
+          <>
+            <OnboardingPage
+              logoText="Wellness Partner"
+              placeholder="whats on your mind?"
+              onSubmit={handleStartOnboarding}
+              onSignIn={handleSignIn}
+              onSignUp={handleSignUp}
+            />
+            <AccountCreation
+              mode={authMode}
+              isOpen={authModalOpen}
+              onClose={handleAuthModalClose}
+              onSwitchMode={handleAuthSwitchMode}
+            />
+          </>
         ) : currentView === 'questions' ? (
-          <OnboardingQuestions onComplete={handleProfileComplete} />
-        ) : currentView === 'signup' ? (
-          <AccountCreation mode="signup" />
-        ) : currentView === 'signin' ? (
-          <AccountCreation mode="signin" />
+          <>
+            <OnboardingQuestions onComplete={handleProfileComplete} />
+            <AccountCreation
+              mode={authMode}
+              isOpen={authModalOpen}
+              onClose={handleAuthModalClose}
+              onSwitchMode={handleAuthSwitchMode}
+            />
+          </>
         ) : (
           <ChatView />
         )

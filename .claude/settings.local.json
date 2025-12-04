@@ -7,7 +7,10 @@
       "Bash(git push:*)",
       "Bash(uv run:*)",
       "Bash(git mv:*)",
-      "Bash(git ls-tree:*)"
+      "Bash(git ls-tree:*)",
+      "Bash(netstat:*)",
+      "Bash(findstr:*)",
+      "Bash(taskkill:*)"
     ],
     "deny": [],
     "ask": []

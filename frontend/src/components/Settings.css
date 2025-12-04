@@ -1,59 +1,102 @@
-.settings-page {
-  max-width: 800px;
-  margin: 0 auto;
-  padding: 40px 20px;
+/* Settings Modal Backdrop */
+.settings-modal-backdrop {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: rgba(0, 0, 0, 0.5);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+  padding: 20px;
 }
 
-.settings-header {
-  margin-bottom: 32px;
+/* Settings Modal */
+.settings-modal {
+  background: white;
+  border-radius: 16px;
+  width: 100%;
+  max-width: 520px;
+  max-height: 90vh;
+  overflow-y: auto;
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
+  animation: modalSlideIn 0.2s ease-out;
 }
 
-.back-button {
-  background: none;
-  border: none;
-  color: #4a90e2;
-  font-size: 14px;
-  cursor: pointer;
-  margin-bottom: 16px;
-  padding: 8px 0;
-  transition: opacity 0.2s;
+@keyframes modalSlideIn {
+  from {
+    opacity: 0;
+    transform: translateY(-20px) scale(0.95);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
 }
 
-.back-button:hover {
-  opacity: 0.7;
+.settings-modal-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 20px 24px;
+  border-bottom: 1px solid #e0e0e0;
+  position: sticky;
+  top: 0;
+  background: white;
+  border-radius: 16px 16px 0 0;
 }
 
-.settings-header h1 {
-  font-size: 32px;
-  font-weight: 700;
+.settings-modal-header h1 {
+  font-size: 20px;
+  font-weight: 600;
   color: #333;
   margin: 0;
 }
 
+.close-button {
+  background: none;
+  border: none;
+  cursor: pointer;
+  padding: 8px;
+  border-radius: 8px;
+  color: #666;
+  transition: all 0.2s;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.close-button:hover {
+  background: #f0f0f0;
+  color: #333;
+}
+
 .settings-content {
+  padding: 24px;
   display: flex;
   flex-direction: column;
-  gap: 32px;
+  gap: 24px;
 }
 
 .settings-section {
-  background: white;
-  border: 1px solid #e0e0e0;
+  background: #f8f9fa;
   border-radius: 12px;
-  padding: 24px;
+  padding: 20px;
 }
 
 .settings-section h2 {
-  font-size: 20px;
+  font-size: 14px;
   font-weight: 600;
-  color: #333;
-  margin: 0 0 20px 0;
-  border-bottom: 1px solid #e0e0e0;
-  padding-bottom: 12px;
+  color: #666;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  margin: 0 0 16px 0;
 }
 
 .setting-item {
-  margin-bottom: 20px;
+  margin-bottom: 16px;
 }
 
 .setting-item:last-child {
@@ -62,30 +105,28 @@
 
 .setting-item label {
   display: block;
-  font-size: 13px;
-  font-weight: 600;
-  color: #666;
-  text-transform: uppercase;
-  letter-spacing: 0.5px;
-  margin-bottom: 8px;
+  font-size: 12px;
+  font-weight: 500;
+  color: #888;
+  margin-bottom: 4px;
 }
 
 .setting-value {
-  font-size: 16px;
+  font-size: 15px;
   color: #333;
   margin: 0;
 }
 
 .setting-value.subscription-tier {
   font-weight: 600;
-  color: #4a90e2;
+  color: #791f85;
 }
 
 .status-badge {
   display: inline-block;
-  padding: 4px 12px;
-  border-radius: 16px;
-  font-size: 13px;
+  padding: 4px 10px;
+  border-radius: 12px;
+  font-size: 12px;
   font-weight: 600;
 }
 
@@ -102,45 +143,45 @@
 .setting-actions {
   display: flex;
   flex-wrap: wrap;
-  gap: 12px;
-  margin-top: 24px;
-  padding-top: 20px;
+  gap: 10px;
+  margin-top: 16px;
+  padding-top: 16px;
   border-top: 1px solid #e0e0e0;
 }
 
 .action-button {
-  padding: 12px 24px;
+  padding: 10px 18px;
   border: none;
   border-radius: 8px;
-  font-size: 14px;
+  font-size: 13px;
   font-weight: 600;
   cursor: pointer;
   transition: all 0.2s;
 }
 
 .action-button.primary {
-  background: #4a90e2;
+  background: #F5841F;
   color: white;
 }
 
 .action-button.primary:hover:not(:disabled) {
-  background: #357abd;
+  background: #FF9A3C;
 }
 
 .action-button.secondary {
   background: white;
-  color: #4a90e2;
-  border: 2px solid #4a90e2;
+  color: #791f85;
+  border: 1px solid #791f85;
 }
 
 .action-button.secondary:hover:not(:disabled) {
-  background: #f0f7ff;
+  background: #f8f0f9;
 }
 
 .action-button.danger {
   background: white;
   color: #d32f2f;
-  border: 2px solid #d32f2f;
+  border: 1px solid #d32f2f;
 }
 
 .action-button.danger:hover:not(:disabled) {
@@ -153,38 +194,53 @@
 }
 
 .upgrade-prompt {
-  background: #f0f7ff;
-  border: 1px solid #4a90e2;
+  background: white;
+  border: 1px solid #F5841F;
   border-radius: 8px;
-  padding: 20px;
-  margin-top: 16px;
+  padding: 16px;
+  margin-top: 12px;
 }
 
 .upgrade-prompt p {
-  margin: 0 0 16px 0;
+  margin: 0 0 12px 0;
   color: #333;
-  font-size: 15px;
+  font-size: 14px;
 }
 
 .settings-loading {
   text-align: center;
-  padding: 60px 20px;
+  padding: 40px 20px;
   color: #666;
-  font-size: 16px;
+  font-size: 15px;
 }
 
 /* Mobile responsive */
 @media (max-width: 768px) {
-  .settings-page {
-    padding: 24px 16px;
+  .settings-modal-backdrop {
+    padding: 0;
+    align-items: flex-end;
   }
 
-  .settings-header h1 {
-    font-size: 24px;
+  .settings-modal {
+    max-width: 100%;
+    max-height: 85vh;
+    border-radius: 16px 16px 0 0;
+    animation: modalSlideUp 0.3s ease-out;
   }
 
-  .settings-section {
-    padding: 20px;
+  @keyframes modalSlideUp {
+    from {
+      opacity: 0;
+      transform: translateY(100%);
+    }
+    to {
+      opacity: 1;
+      transform: translateY(0);
+    }
+  }
+
+  .settings-modal-header {
+    border-radius: 16px 16px 0 0;
   }
 
   .setting-actions {

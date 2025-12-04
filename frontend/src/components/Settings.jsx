@@ -1,14 +1,13 @@
 /**
- * Settings component with Supabase authentication
+ * Settings modal component with Supabase authentication
+ * Displays as an overlay on top of the main app
  */
 import { useState, useEffect } from 'react';
-import { useNavigate } from 'react-router-dom';
 import { supabase } from '../supabaseClient';
 import { api } from '../api';
 import './Settings.css';
 
-export default function Settings() {
-  const navigate = useNavigate();
+export default function Settings({ isOpen, onClose }) {
   const [user, setUser] = useState(null);
   const [subscription, setSubscription] = useState(null);
   const [loading, setLoading] = useState(true);
@@ -21,9 +20,12 @@ export default function Settings() {
     return session?.access_token;
   };
 
-  // Load user and subscription
+  // Load user and subscription when modal opens
   useEffect(() => {
+    if (!isOpen) return;
+
     const initializeSettings = async () => {
+      setLoading(true);
       // Get current user
       const { data: { session } } = await supabase.auth.getSession();
       setUser(session?.user);
@@ -33,7 +35,7 @@ export default function Settings() {
     };
 
     initializeSettings();
-  }, []);
+  }, [isOpen]);
 
   const loadSubscription = async () => {
     try {
@@ -76,6 +78,11 @@ export default function Settings() {
     }
   };
 
+  const handleUpgrade = () => {
+    onClose();
+    window.location.href = '/paywall';
+  };
+
   const getTierDisplayName = (tier) => {
     const names = {
       'free': 'Free Tier',
@@ -86,100 +93,120 @@ export default function Settings() {
     return names[tier] || tier;
   };
 
-  if (loading) {
-    return (
-      <div className="settings-page">
-        <div className="settings-loading">Loading...</div>
-      </div>
-    );
-  }
+  // Handle click outside to close
+  const handleBackdropClick = (e) => {
+    if (e.target.classList.contains('settings-modal-backdrop')) {
+      onClose();
+    }
+  };
+
+  // Handle escape key to close
+  useEffect(() => {
+    const handleEscape = (e) => {
+      if (e.key === 'Escape' && isOpen) {
+        onClose();
+      }
+    };
+    document.addEventListener('keydown', handleEscape);
+    return () => document.removeEventListener('keydown', handleEscape);
+  }, [isOpen, onClose]);
+
+  if (!isOpen) return null;
 
   return (
-    <div className="settings-page">
-      <div className="settings-header">
-        <button className="back-button" onClick={() => navigate('/')}>
-          ← Back to Chat
-        </button>
-        <h1>Account Settings</h1>
-      </div>
+    <div className="settings-modal-backdrop" onClick={handleBackdropClick}>
+      <div className="settings-modal">
+        <div className="settings-modal-header">
+          <h1>Account Settings</h1>
+          <button className="close-button" onClick={onClose} aria-label="Close">
+            <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+              <path d="M18 6L6 18M6 6l12 12" />
+            </svg>
+          </button>
+        </div>
 
-      <div className="settings-content">
-        {/* Account Section */}
-        <section className="settings-section">
-          <h2>Account</h2>
-          <div className="setting-item">
-            <label>Email Address</label>
-            <p className="setting-value">{user?.email}</p>
-          </div>
-        </section>
-
-        {/* Subscription Section */}
-        <section className="settings-section">
-          <h2>Subscription</h2>
-
-          <div className="setting-item">
-            <label>Current Plan</label>
-            <p className="setting-value subscription-tier">
-              {getTierDisplayName(subscription?.tier)}
-            </p>
-          </div>
-
-          {subscription?.tier !== 'free' && (
-            <>
+        {loading ? (
+          <div className="settings-loading">Loading...</div>
+        ) : (
+          <div className="settings-content">
+            {/* Account Section */}
+            <section className="settings-section">
+              <h2>Account</h2>
               <div className="setting-item">
-                <label>Status</label>
-                <p className="setting-value">
-                  <span className={`status-badge ${subscription?.status}`}>
-                    {subscription?.status === 'active' ? '✓ Active' : subscription?.status}
-                  </span>
+                <label>Email Address</label>
+                <p className="setting-value">{user?.email}</p>
+              </div>
+            </section>
+
+            {/* Subscription Section */}
+            <section className="settings-section">
+              <h2>Subscription</h2>
+
+              <div className="setting-item">
+                <label>Current Plan</label>
+                <p className="setting-value subscription-tier">
+                  {getTierDisplayName(subscription?.tier)}
                 </p>
               </div>
 
-              {subscription?.current_period_end && (
-                <div className="setting-item">
-                  <label>
-                    {subscription?.status === 'cancelled' ? 'Access Until' : 'Renews On'}
-                  </label>
-                  <p className="setting-value">
-                    {new Date(subscription.current_period_end).toLocaleDateString()}
-                  </p>
-                </div>
+              {subscription?.tier !== 'free' && (
+                <>
+                  <div className="setting-item">
+                    <label>Status</label>
+                    <p className="setting-value">
+                      <span className={`status-badge ${subscription?.status}`}>
+                        {subscription?.status === 'active' ? 'Active' : subscription?.status}
+                      </span>
+                    </p>
+                  </div>
+
+                  {subscription?.current_period_end && (
+                    <div className="setting-item">
+                      <label>
+                        {subscription?.status === 'cancelled' ? 'Access Until' : 'Renews On'}
+                      </label>
+                      <p className="setting-value">
+                        {new Date(subscription.current_period_end).toLocaleDateString()}
+                      </p>
+                    </div>
+                  )}
+
+                  <div className="setting-actions">
+                    <button
+                      className="action-button secondary"
+                      onClick={handleManagePayment}
+                      disabled={portalLoading}
+                    >
+                      {portalLoading ? 'Loading...' : 'Update Payment Method'}
+                    </button>
+
+                    {subscription?.status === 'active' && (
+                      <button
+                        className="action-button danger"
+                        onClick={handleCancelSubscription}
+                        disabled={cancelling}
+                      >
+                        {cancelling ? 'Cancelling...' : 'Cancel Subscription'}
+                      </button>
+                    )}
+                  </div>
+                </>
               )}
 
-              <div className="setting-actions">
-                <button
-                  className="action-button secondary"
-                  onClick={handleManagePayment}
-                  disabled={portalLoading}
-                >
-                  {portalLoading ? 'Loading...' : 'Update Payment Method'}
-                </button>
-
-                {subscription?.status === 'active' && (
+              {subscription?.tier === 'free' && (
+                <div className="upgrade-prompt">
+                  <p>Upgrade to a paid plan for unlimited access and no expiration on reports.</p>
                   <button
-                    className="action-button danger"
-                    onClick={handleCancelSubscription}
-                    disabled={cancelling}
+                    className="action-button primary"
+                    onClick={handleUpgrade}
                   >
-                    {cancelling ? 'Cancelling...' : 'Cancel Subscription'}
+                    View Plans
                   </button>
-                )}
-              </div>
-            </>
-          )}
-
-          {subscription?.tier === 'free' && (
-            <div className="upgrade-prompt">
-              <p>Upgrade to a paid plan for unlimited access and no expiration on reports.</p>
-              <button
-                className="action-button primary"
-                onClick={() => navigate('/paywall')}
-              >
-                View Plans
-              </button>
-            </div>
-          )}
-        </section>
+                </div>
+              )}
+            </section>
+          </div>
+        )}
       </div>
     </div>
   );
