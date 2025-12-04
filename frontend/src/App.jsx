@@ -4,7 +4,7 @@
  * Uses Supabase for authentication instead of Clerk.
  * Authentication state is managed through Supabase's onAuthStateChange listener.
  */
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { Routes, Route, useNavigate } from 'react-router-dom';
 import { supabase } from './supabaseClient';
 import Sidebar from './components/Sidebar';
@@ -29,10 +29,11 @@ function App() {
   const isSignedIn = !!session;
 
   // Helper function to get auth token (replaces Clerk's getToken)
-  const getToken = async () => {
+  // Memoized to prevent infinite re-renders in useEffect dependencies
+  const getToken = useCallback(async () => {
     if (!session) return null;
     return session.access_token;
-  };
+  }, [session]);
 
   const [conversations, setConversations] = useState([]);
   const [currentConversationId, setCurrentConversationId] = useState(null);
@@ -97,8 +98,14 @@ function App() {
       }
 
       if (!isSignedIn) {
-        // User is not signed in, show landing page
-        setCurrentView('landing');
+        // User is not signed in - only reset to landing if not already on auth pages
+        setCurrentView((prev) => {
+          // Keep signin/signup views, otherwise go to landing
+          if (prev === 'signin' || prev === 'signup' || prev === 'questions') {
+            return prev;
+          }
+          return 'landing';
+        });
         setCheckingProfile(false);
         return;
       }

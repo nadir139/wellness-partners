@@ -239,7 +239,7 @@ export default function Sidebar({
             <div className="settings-dropdown" ref={settingsMenuRef}>
               {/* Email display */}
               <div className="settings-email">
-                {user?.primaryEmailAddress?.emailAddress}
+                {user?.email}
               </div>
 
               <div className="settings-divider"></div>

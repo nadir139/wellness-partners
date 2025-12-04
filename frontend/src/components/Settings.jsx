@@ -109,7 +109,7 @@ export default function Settings() {
           <h2>Account</h2>
           <div className="setting-item">
             <label>Email Address</label>
-            <p className="setting-value">{user?.primaryEmailAddress?.emailAddress}</p>
+            <p className="setting-value">{user?.email}</p>
           </div>
         </section>
 
