@@ -1,15 +1,15 @@
 """
 Authentication middleware using Clerk
 """
-import os
 import jwt
 import requests
 from typing import Optional
 from fastapi import HTTPException, Header
+from . import config
 
 # Clerk configuration
-CLERK_SECRET_KEY = os.getenv("CLERK_SECRET_KEY")
-CLERK_JWKS_URL = "https://saved-leopard-59.clerk.accounts.dev/.well-known/jwks.json"
+CLERK_SECRET_KEY = config.CLERK_SECRET_KEY
+CLERK_JWKS_URL = f"https://{config.CLERK_INSTANCE_ID}.clerk.accounts.dev/.well-known/jwks.json"
 
 
 async def get_current_user(authorization: Optional[str] = Header(None)):
@@ -136,7 +136,7 @@ def get_admin_key(admin_key: Optional[str] = Header(None)):
             detail="Admin key required"
         )
 
-    expected_key = os.getenv("ADMIN_API_KEY")
+    expected_key = config.ADMIN_API_KEY
     if not expected_key:
         raise HTTPException(
             status_code=500,

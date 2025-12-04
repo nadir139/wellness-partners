@@ -9,8 +9,10 @@ load_dotenv()
 OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY")
 
 # Admin API key for accessing Stage 2 analytics
-# Set this in your .env file: ADMIN_API_KEY=your_secret_key_here
-ADMIN_API_KEY = os.getenv("ADMIN_API_KEY", "change-this-in-production")
+# REQUIRED: Set this in your .env file: ADMIN_API_KEY=your_secret_key_here
+ADMIN_API_KEY = os.getenv("ADMIN_API_KEY")
+if not ADMIN_API_KEY:
+    raise ValueError("ADMIN_API_KEY environment variable is required for security. Generate a secure random key.")
 
 # Stripe API keys for payment processing (Feature 4)
 STRIPE_SECRET_KEY = os.getenv("STRIPE_SECRET_KEY")
@@ -19,6 +21,11 @@ STRIPE_WEBHOOK_SECRET = os.getenv("STRIPE_WEBHOOK_SECRET")
 
 # Clerk authentication
 CLERK_SECRET_KEY = os.getenv("CLERK_SECRET_KEY")
+CLERK_INSTANCE_ID = os.getenv("CLERK_INSTANCE_ID")
+
+# Validate required Clerk configuration
+if not CLERK_INSTANCE_ID:
+    raise ValueError("CLERK_INSTANCE_ID environment variable is required. Example: 'saved-leopard-59'")
 
 # Wellness council members - 5 specialized professional roles
 # Using role-specific identifiers for the same base model

@@ -3,11 +3,30 @@
 from fastapi import FastAPI, HTTPException, Header, Depends, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
-from pydantic import BaseModel
+from pydantic import BaseModel, field_validator
 from typing import List, Dict, Any, Optional
 import uuid
 import json
 import asyncio
+import structlog
+from slowapi import Limiter, _rate_limit_exceeded_handler
+from slowapi.util import get_remote_address
+from slowapi.errors import RateLimitExceeded
+
+# Configure structured logging
+structlog.configure(
+    processors=[
+        structlog.processors.TimeStamper(fmt="iso"),
+        structlog.stdlib.add_log_level,
+        structlog.processors.StackInfoRenderer(),
+        structlog.processors.format_exc_info,
+        structlog.processors.JSONRenderer()
+    ],
+    context_class=dict,
+    logger_factory=structlog.PrintLoggerFactory(),
+)
+
+logger = structlog.get_logger()
 
 from . import storage
 from . import config
@@ -15,7 +34,11 @@ from .council import run_full_council, generate_conversation_title, stage1_colle
 from .auth import get_current_user, get_admin_key
 from .stripe_integration import create_checkout_session, verify_webhook_signature, get_all_plans, cancel_subscription, create_customer_portal_session
 
+# Initialize rate limiter
+limiter = Limiter(key_func=get_remote_address)
 app = FastAPI(title="LLM Council API")
+app.state.limiter = limiter
+app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 
 # Enable CORS for local development
 app.add_middleware(
@@ -36,6 +59,16 @@ class SendMessageRequest(BaseModel):
     """Request to send a message in a conversation."""
     content: str
 
+    @field_validator('content')
+    @classmethod
+    def validate_content(cls, v):
+        """Validate message content to prevent abuse and injection attacks."""
+        if not v or not v.strip():
+            raise ValueError("Message cannot be empty")
+        if len(v) > 5000:
+            raise ValueError("Message too long (max 5000 characters)")
+        return v.strip()
+
 
 class UpdateTitleRequest(BaseModel):
     """Request to update conversation title."""
@@ -45,6 +78,16 @@ class UpdateTitleRequest(BaseModel):
 class FollowUpRequest(BaseModel):
     """Request to submit follow-up answers for Feature 3."""
     follow_up_answers: str
+
+    @field_validator('follow_up_answers')
+    @classmethod
+    def validate_follow_up(cls, v):
+        """Validate follow-up answers."""
+        if not v or not v.strip():
+            raise ValueError("Follow-up answers cannot be empty")
+        if len(v) > 10000:  # Allow longer for follow-up answers
+            raise ValueError("Follow-up answers too long (max 10000 characters)")
+        return v.strip()
 
 
 class CreateProfileRequest(BaseModel):
@@ -173,7 +216,9 @@ async def get_conversation(
 
 
 @app.post("/api/conversations/{conversation_id}/message")
+@limiter.limit("10/minute")  # Limit to 10 queries per minute per user
 async def send_message(
+    req: Request,
     conversation_id: str,
     request: SendMessageRequest,
     user: Dict[str, Any] = Depends(get_current_user)
@@ -184,13 +229,22 @@ async def send_message(
 
     Feature 3: Now injects user profile for personalized recommendations.
     """
+    logger.info("message_received",
+                user_id=user["user_id"],
+                conversation_id=conversation_id,
+                message_length=len(request.content))
+
     # Check if conversation exists
     conversation = storage.get_conversation(conversation_id)
     if conversation is None:
+        logger.error("conversation_not_found", conversation_id=conversation_id)
         raise HTTPException(status_code=404, detail="Conversation not found")
 
     # Feature 4: Check ownership
     if conversation.get("user_id") != user["user_id"]:
+        logger.warning("unauthorized_access_attempt",
+                      user_id=user["user_id"],
+                      conversation_id=conversation_id)
         raise HTTPException(status_code=403, detail="Access denied")
 
     # Check if this is the first message
@@ -237,7 +291,9 @@ async def send_message(
 
 
 @app.post("/api/conversations/{conversation_id}/message/stream")
+@limiter.limit("10/minute")  # Limit to 10 queries per minute per user
 async def send_message_stream(
+    req: Request,
     conversation_id: str,
     request: SendMessageRequest,
     user: Dict[str, Any] = Depends(get_current_user)
