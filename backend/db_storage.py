@@ -19,6 +19,32 @@ from .database import User, Subscription, Conversation, Message, DatabaseManager
 # USER OPERATIONS
 # =====================
 
+async def ensure_user_exists(user_id: str, email: str, session: AsyncSession) -> User:
+    """
+    Ensure a user record exists in the database.
+    Creates a minimal user record if one doesn't exist (for subscription creation).
+
+    This is needed because Supabase Auth manages users separately, but our
+    subscriptions table has a foreign key to the users table.
+    """
+    result = await session.execute(
+        select(User).where(User.user_id == user_id)
+    )
+    user = result.scalar_one_or_none()
+
+    if user is None:
+        # Create minimal user record (profile can be filled in later)
+        user = User(
+            user_id=user_id,
+            email=email,
+            profile_locked=False
+        )
+        session.add(user)
+        await session.flush()
+
+    return user
+
+
 async def create_user_profile(user_id: str, profile_data: Dict[str, Any], session: AsyncSession) -> Dict[str, Any]:
     """
     Create a new user profile with onboarding data.

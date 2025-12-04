@@ -2,7 +2,7 @@
  * AccountCreation component using Supabase Auth
  *
  * Provides simple email/password authentication for both sign up and sign in.
- * Replaces Clerk's pre-built UI components with a custom form.
+ * Uses custom form styling (no third-party auth UI libraries).
  */
 import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
@@ -100,7 +100,7 @@ export default function AccountCreation({ mode = 'signup', onSuccess }) {
           </p>
         </div>
 
-        <div className="clerk-form-wrapper">
+        <div className="auth-form-wrapper">
           <form onSubmit={handleSubmit} className="supabase-auth-form">
             {/* Email input */}
             <div className="form-field">
@@ -113,7 +113,7 @@ export default function AccountCreation({ mode = 'signup', onSuccess }) {
                 placeholder="Enter your email"
                 required
                 disabled={loading}
-                className="clerk-input"
+                className="auth-input"
               />
             </div>
 
@@ -129,7 +129,7 @@ export default function AccountCreation({ mode = 'signup', onSuccess }) {
                 required
                 minLength={6}
                 disabled={loading}
-                className="clerk-input"
+                className="auth-input"
               />
               {isSignUp && (
                 <p className="field-hint">Must be at least 6 characters</p>
@@ -154,7 +154,7 @@ export default function AccountCreation({ mode = 'signup', onSuccess }) {
             <button
               type="submit"
               disabled={loading}
-              className="clerk-primary-button"
+              className="auth-primary-button"
             >
               {loading ? 'Loading...' : isSignUp ? 'Sign Up' : 'Sign In'}
             </button>
@@ -164,14 +164,14 @@ export default function AccountCreation({ mode = 'signup', onSuccess }) {
               {isSignUp ? (
                 <p>
                   Already have an account?{' '}
-                  <a href="#/signin" className="clerk-link">
+                  <a href="#/signin" className="auth-link">
                     Sign in
                   </a>
                 </p>
               ) : (
                 <p>
                   Don't have an account?{' '}
-                  <a href="#/signup" className="clerk-link">
+                  <a href="#/signup" className="auth-link">
                     Sign up
                   </a>
                 </p>

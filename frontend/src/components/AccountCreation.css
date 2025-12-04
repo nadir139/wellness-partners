@@ -32,34 +32,34 @@
   line-height: 1.5;
 }
 
-/* Clerk Form Wrapper */
-.clerk-form-wrapper {
+/* Auth Form Wrapper */
+.auth-form-wrapper {
   background-color: #FFFFFF;
   border-radius: 16px;
   padding: 32px;
   box-shadow: 0 4px 24px rgba(0, 0, 0, 0.15);
 }
 
-/* Custom Clerk Styling */
-.clerk-root-box {
+/* Custom Auth Styling */
+.auth-root-box {
   width: 100%;
 }
 
-.clerk-card {
+.auth-card {
   background: transparent;
   box-shadow: none;
   padding: 0;
 }
 
-.clerk-header-title {
-  display: none; /* Hide Clerk's default title, we have our own */
+.auth-header-title {
+  display: none; /* We use custom title above the form */
 }
 
-.clerk-header-subtitle {
-  display: none; /* Hide Clerk's default subtitle */
+.auth-header-subtitle {
+  display: none; /* We use custom subtitle above the form */
 }
 
-.clerk-social-button {
+.auth-social-button {
   background-color: #FFFFFF;
   border: 1px solid #E0E0E0;
   color: #333333;
@@ -70,12 +70,12 @@
   transition: all 0.2s ease;
 }
 
-.clerk-social-button:hover {
+.auth-social-button:hover {
   border-color: #F5841F;
   background-color: rgba(245, 132, 31, 0.05);
 }
 
-.clerk-primary-button {
+.auth-primary-button {
   background-color: #F5841F !important;
   color: #FFFFFF !important;
   border: none !important;
@@ -86,11 +86,11 @@
   transition: all 0.2s ease !important;
 }
 
-.clerk-primary-button:hover {
+.auth-primary-button:hover {
   background-color: #FF9A3C !important;
 }
 
-.clerk-input {
+.auth-input {
   border: 1px solid #E0E0E0 !important;
   border-radius: 8px !important;
   padding: 12px !important;
@@ -98,18 +98,18 @@
   transition: border-color 0.2s ease !important;
 }
 
-.clerk-input:focus {
+.auth-input:focus {
   border-color: #F5841F !important;
   box-shadow: 0 0 0 2px rgba(245, 132, 31, 0.1) !important;
 }
 
-.clerk-link {
+.auth-link {
   color: #F5841F !important;
   text-decoration: none !important;
   transition: color 0.2s ease !important;
 }
 
-.clerk-link:hover {
+.auth-link:hover {
   color: #FF9A3C !important;
   text-decoration: underline !important;
 }
@@ -180,7 +180,7 @@
     font-size: 14px;
   }
 
-  .clerk-form-wrapper {
+  .auth-form-wrapper {
     padding: 24px;
   }
 }

@@ -1,7 +1,7 @@
 /**
  * Main App component for Wellness Partner
  *
- * Uses Supabase for authentication instead of Clerk.
+ * Uses Supabase for authentication.
  * Authentication state is managed through Supabase's onAuthStateChange listener.
  */
 import { useState, useEffect, useCallback } from 'react';
@@ -28,7 +28,7 @@ function App() {
   // Derived auth state (for compatibility with existing code)
   const isSignedIn = !!session;
 
-  // Helper function to get auth token (replaces Clerk's getToken)
+  // Helper function to get auth token for API calls
   // Memoized to prevent infinite re-renders in useEffect dependencies
   const getToken = useCallback(async () => {
     if (!session) return null;

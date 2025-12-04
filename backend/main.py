@@ -754,6 +754,10 @@ async def get_user_subscription(
     subscription = await db_storage.get_subscription(user["user_id"], session)
 
     if subscription is None:
+        # Ensure user exists in database before creating subscription
+        # (Supabase Auth users may not have a record in our users table yet)
+        await db_storage.ensure_user_exists(user["user_id"], user.get("email", ""), session)
+
         # Create default free subscription
         subscription = await db_storage.create_subscription(user["user_id"], tier="free", session=session)
 

@@ -2,7 +2,7 @@
  * Main entry point for the Wellness Partner application
  *
  * Supabase authentication is initialized in supabaseClient.js and used throughout the app.
- * Unlike Clerk, Supabase doesn't require a provider wrapper - just import the client where needed.
+ * No provider wrapper needed - just import the client where you need it.
  */
 import { StrictMode } from 'react'
 import { createRoot } from 'react-dom/client'
