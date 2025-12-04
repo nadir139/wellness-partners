@@ -28,8 +28,10 @@ structlog.configure(
 
 logger = structlog.get_logger()
 
-from . import storage
+from . import db_storage
 from . import config
+from .database import DatabaseManager, get_db_session
+from sqlalchemy.ext.asyncio import AsyncSession
 from .council import run_full_council, generate_conversation_title, stage1_collect_responses, stage2_collect_rankings, stage3_synthesize_final, calculate_aggregate_rankings
 from .auth import get_current_user, get_admin_key
 from .stripe_integration import create_checkout_session, verify_webhook_signature, get_all_plans, cancel_subscription, create_customer_portal_session
@@ -48,6 +50,27 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+
+@app.on_event("startup")
+async def startup():
+    """Initialize database connection on app startup."""
+    logger.info("initializing_database")
+    try:
+        DatabaseManager.initialize()
+        await DatabaseManager.create_tables()
+        logger.info("database_ready")
+    except Exception as e:
+        logger.error("database_initialization_failed", error=str(e))
+        raise
+
+
+@app.on_event("shutdown")
+async def shutdown():
+    """Close database connections on shutdown."""
+    logger.info("closing_database")
+    await DatabaseManager.close()
+    logger.info("database_closed")
 
 
 class CreateConversationRequest(BaseModel):
@@ -145,16 +168,20 @@ async def root():
 
 
 @app.get("/api/conversations", response_model=List[ConversationMetadata])
-async def list_conversations(user: Dict[str, Any] = Depends(get_current_user)):
+async def list_conversations(
+    user: Dict[str, Any] = Depends(get_current_user),
+    session: AsyncSession = Depends(get_db_session)
+):
     """List all conversations for the current user (metadata only). Requires authentication."""
     # Filter conversations by user_id for access control
-    return storage.list_conversations(user_id=user["user_id"])
+    return await db_storage.list_conversations(user_id=user["user_id"], session=session)
 
 
 @app.post("/api/conversations", response_model=Conversation)
 async def create_conversation(
     request: CreateConversationRequest,
-    user: Dict[str, Any] = Depends(get_current_user)
+    user: Dict[str, Any] = Depends(get_current_user),
+    session: AsyncSession = Depends(get_db_session)
 ):
     """
     Create a new conversation. Requires authentication.
@@ -165,15 +192,15 @@ async def create_conversation(
     user_id = user["user_id"]
 
     # Get user's subscription
-    subscription = storage.get_subscription(user_id)
+    subscription = await db_storage.get_subscription(user_id, session)
     if subscription is None:
         # Create default free subscription
-        subscription = storage.create_subscription(user_id, tier="free")
+        subscription = await db_storage.create_subscription(user_id, tier="free", session=session)
 
     # Feature 4: Paywall enforcement for free users
     if subscription["tier"] == "free":
         # Count existing conversations for this user
-        existing_conversations = storage.list_conversations(user_id=user_id)
+        existing_conversations = await db_storage.list_conversations(user_id=user_id, session=session)
 
         # Free users can create max 2 conversations (FREE_CONVERSATION_LIMIT)
         if len(existing_conversations) >= config.FREE_CONVERSATION_LIMIT:
@@ -187,13 +214,8 @@ async def create_conversation(
                 }
             )
 
-    # Create conversation with user_id and subscription tier
-    conversation_id = str(uuid.uuid4())
-    conversation = storage.create_conversation(
-        conversation_id,
-        user_id=user_id,
-        subscription_tier=subscription["tier"]
-    )
+    # Create conversation with user_id (subscription tier handled in db_storage)
+    conversation = await db_storage.create_conversation(user_id=user_id, session=session)
 
     return conversation
 
@@ -201,10 +223,11 @@ async def create_conversation(
 @app.get("/api/conversations/{conversation_id}", response_model=Conversation)
 async def get_conversation(
     conversation_id: str,
-    user: Dict[str, Any] = Depends(get_current_user)
+    user: Dict[str, Any] = Depends(get_current_user),
+    session: AsyncSession = Depends(get_db_session)
 ):
     """Get a specific conversation with all its messages. Requires authentication."""
-    conversation = storage.get_conversation(conversation_id)
+    conversation = await db_storage.get_conversation(conversation_id, session)
     if conversation is None:
         raise HTTPException(status_code=404, detail="Conversation not found")
 
@@ -221,7 +244,8 @@ async def send_message(
     req: Request,
     conversation_id: str,
     request: SendMessageRequest,
-    user: Dict[str, Any] = Depends(get_current_user)
+    user: Dict[str, Any] = Depends(get_current_user),
+    session: AsyncSession = Depends(get_db_session)
 ):
     """
     Send a message and run the 3-stage council process.
@@ -235,7 +259,7 @@ async def send_message(
                 message_length=len(request.content))
 
     # Check if conversation exists
-    conversation = storage.get_conversation(conversation_id)
+    conversation = await db_storage.get_conversation(conversation_id, session)
     if conversation is None:
         logger.error("conversation_not_found", conversation_id=conversation_id)
         raise HTTPException(status_code=404, detail="Conversation not found")
@@ -251,15 +275,19 @@ async def send_message(
     is_first_message = len(conversation["messages"]) == 0
 
     # Add user message
-    storage.add_user_message(conversation_id, request.content)
+    await db_storage.add_message(
+        conversation_id,
+        {"role": "user", "content": request.content},
+        session
+    )
 
     # If this is the first message, generate a title
     if is_first_message:
         title = await generate_conversation_title(request.content)
-        storage.update_conversation_title(conversation_id, title)
+        await db_storage.update_conversation_title(conversation_id, title, session)
 
     # Feature 3: Get user profile for context injection
-    user_profile = storage.get_user_profile(user["user_id"])
+    user_profile = await db_storage.get_user_profile(user["user_id"], session)
 
     # Feature 3: Get follow-up context if it exists
     follow_up_context = conversation.get("follow_up_answers")
@@ -272,11 +300,16 @@ async def send_message(
     )
 
     # Add assistant message with all stages
-    storage.add_assistant_message(
+    await db_storage.add_message(
         conversation_id,
-        stage1_results,
-        stage2_results,
-        stage3_result
+        {
+            "role": "assistant",
+            "stage1": stage1_results,
+            "stage2": stage2_results,
+            "stage3": stage3_result,
+            "metadata": metadata
+        },
+        session
     )
 
     # Return the complete response with metadata
@@ -296,7 +329,8 @@ async def send_message_stream(
     req: Request,
     conversation_id: str,
     request: SendMessageRequest,
-    user: Dict[str, Any] = Depends(get_current_user)
+    user: Dict[str, Any] = Depends(get_current_user),
+    session: AsyncSession = Depends(get_db_session)
 ):
     """
     Send a message and stream the 3-stage council process.
@@ -305,7 +339,7 @@ async def send_message_stream(
     Feature 3: Now injects user profile and follow-up context for personalization.
     """
     # Check if conversation exists
-    conversation = storage.get_conversation(conversation_id)
+    conversation = await db_storage.get_conversation(conversation_id, session)
     if conversation is None:
         raise HTTPException(status_code=404, detail="Conversation not found")
 
@@ -317,7 +351,7 @@ async def send_message_stream(
     is_first_message = len(conversation["messages"]) == 0
 
     # Feature 3: Get user profile for context injection
-    user_profile = storage.get_user_profile(user["user_id"])
+    user_profile = await db_storage.get_user_profile(user["user_id"], session)
 
     # Feature 3: Get follow-up context if it exists
     follow_up_context = conversation.get("follow_up_answers")
@@ -325,7 +359,11 @@ async def send_message_stream(
     async def event_generator():
         try:
             # Add user message
-            storage.add_user_message(conversation_id, request.content)
+            await db_storage.add_message(
+                conversation_id,
+                {"role": "user", "content": request.content},
+                session
+            )
 
             # Start title generation in parallel (don't await yet)
             title_task = None
@@ -355,19 +393,24 @@ async def send_message_stream(
             # Wait for title generation if it was started
             if title_task:
                 title = await title_task
-                storage.update_conversation_title(conversation_id, title)
+                await db_storage.update_conversation_title(conversation_id, title, session)
                 yield f"data: {json.dumps({'type': 'title_complete', 'data': {'title': title}})}\n\n"
 
             # Save complete assistant message
-            storage.add_assistant_message(
+            await db_storage.add_message(
                 conversation_id,
-                stage1_results,
-                stage2_results,
-                stage3_result
+                {
+                    "role": "assistant",
+                    "stage1": stage1_results,
+                    "stage2": stage2_results,
+                    "stage3": stage3_result,
+                    "metadata": {"label_to_model": label_to_model, "aggregate_rankings": aggregate_rankings}
+                },
+                session
             )
 
             # Reload conversation to get updated report_cycle
-            conversation = storage.get_conversation(conversation_id)
+            conversation = await db_storage.get_conversation(conversation_id, session)
 
             # Send completion event with report_cycle
             yield f"data: {json.dumps({'type': 'complete', 'report_cycle': conversation.get('report_cycle', 0)})}\n\n"
@@ -390,7 +433,8 @@ async def send_message_stream(
 async def submit_follow_up(
     conversation_id: str,
     request: FollowUpRequest,
-    user: Dict[str, Any] = Depends(get_current_user)
+    user: Dict[str, Any] = Depends(get_current_user),
+    session: AsyncSession = Depends(get_db_session)
 ):
     """
     Submit follow-up answers and generate second report (Feature 3).
@@ -404,7 +448,7 @@ async def submit_follow_up(
     The follow-up context will be injected into all future messages in this conversation.
     """
     # Check if conversation exists
-    conversation = storage.get_conversation(conversation_id)
+    conversation = await db_storage.get_conversation(conversation_id, session)
     if conversation is None:
         raise HTTPException(status_code=404, detail="Conversation not found")
 
@@ -420,13 +464,14 @@ async def submit_follow_up(
         )
 
     # Save follow-up answers to conversation
-    storage.save_follow_up_answers(conversation_id, request.follow_up_answers)
-
-    # Reload conversation to get updated data
-    conversation = storage.get_conversation(conversation_id)
+    conversation = await db_storage.update_conversation_follow_up(
+        conversation_id,
+        request.follow_up_answers,
+        session
+    )
 
     # Get user profile for personalization
-    user_profile = storage.get_user_profile(user["user_id"])
+    user_profile = await db_storage.get_user_profile(user["user_id"], session)
 
     # Get the last user question from the conversation
     # The follow-up is answering questions about the previous report
@@ -451,15 +496,20 @@ async def submit_follow_up(
     )
 
     # Add assistant message with the new report
-    storage.add_assistant_message(
+    await db_storage.add_message(
         conversation_id,
-        stage1_results,
-        stage2_results,
-        stage3_result
+        {
+            "role": "assistant",
+            "stage1": stage1_results,
+            "stage2": stage2_results,
+            "stage3": stage3_result,
+            "metadata": metadata
+        },
+        session
     )
 
     # Reload conversation again to get final state
-    conversation = storage.get_conversation(conversation_id)
+    conversation = await db_storage.get_conversation(conversation_id, session)
 
     # Return the new report
     return {
@@ -474,11 +524,12 @@ async def submit_follow_up(
 @app.post("/api/conversations/{conversation_id}/star")
 async def toggle_star_conversation(
     conversation_id: str,
-    user: Dict[str, Any] = Depends(get_current_user)
+    user: Dict[str, Any] = Depends(get_current_user),
+    session: AsyncSession = Depends(get_db_session)
 ):
     """Toggle the starred status of a conversation. Requires authentication."""
     # Feature 4: Check ownership before allowing star
-    conversation = storage.get_conversation(conversation_id)
+    conversation = await db_storage.get_conversation(conversation_id, session)
     if conversation is None:
         raise HTTPException(status_code=404, detail="Conversation not found")
 
@@ -486,8 +537,8 @@ async def toggle_star_conversation(
         raise HTTPException(status_code=403, detail="Access denied")
 
     try:
-        starred = storage.toggle_conversation_starred(conversation_id)
-        return {"starred": starred}
+        result = await db_storage.toggle_conversation_star(conversation_id, session)
+        return {"starred": result.get("starred", False)}
     except ValueError as e:
         raise HTTPException(status_code=404, detail=str(e))
 
@@ -496,11 +547,12 @@ async def toggle_star_conversation(
 async def update_conversation_title(
     conversation_id: str,
     request: UpdateTitleRequest,
-    user: Dict[str, Any] = Depends(get_current_user)
+    user: Dict[str, Any] = Depends(get_current_user),
+    session: AsyncSession = Depends(get_db_session)
 ):
     """Update the title of a conversation. Requires authentication."""
     # Feature 4: Check ownership before allowing rename
-    conversation = storage.get_conversation(conversation_id)
+    conversation = await db_storage.get_conversation(conversation_id, session)
     if conversation is None:
         raise HTTPException(status_code=404, detail="Conversation not found")
 
@@ -508,7 +560,7 @@ async def update_conversation_title(
         raise HTTPException(status_code=403, detail="Access denied")
 
     try:
-        storage.update_conversation_title(conversation_id, request.title)
+        await db_storage.update_conversation_title(conversation_id, request.title, session)
         return {"title": request.title}
     except ValueError as e:
         raise HTTPException(status_code=404, detail=str(e))
@@ -517,25 +569,27 @@ async def update_conversation_title(
 @app.delete("/api/conversations/{conversation_id}")
 async def delete_conversation(
     conversation_id: str,
-    user: Dict[str, Any] = Depends(get_current_user)
+    user: Dict[str, Any] = Depends(get_current_user),
+    session: AsyncSession = Depends(get_db_session)
 ):
     """Delete a conversation. Requires authentication."""
     # Feature 4: Check ownership before allowing delete
-    conversation = storage.get_conversation(conversation_id)
+    conversation = await db_storage.get_conversation(conversation_id, session)
     if conversation is None:
         raise HTTPException(status_code=404, detail="Conversation not found")
 
     if conversation.get("user_id") != user["user_id"]:
         raise HTTPException(status_code=403, detail="Access denied")
 
-    storage.delete_conversation(conversation_id)
+    await db_storage.delete_conversation(conversation_id, session)
     return {"deleted": True}
 
 
 @app.get("/api/admin/conversations/{conversation_id}/stage2")
 async def get_stage2_analytics(
     conversation_id: str,
-    x_admin_key: Optional[str] = Header(None, alias="X-Admin-Key")
+    x_admin_key: Optional[str] = Header(None, alias="X-Admin-Key"),
+    session: AsyncSession = Depends(get_db_session)
 ):
     """
     Get Stage 2 data for analytics and research (admin only).
@@ -557,7 +611,7 @@ async def get_stage2_analytics(
         )
 
     # Get the conversation
-    conversation = storage.get_conversation(conversation_id)
+    conversation = await db_storage.get_conversation(conversation_id, session)
     if conversation is None:
         raise HTTPException(status_code=404, detail="Conversation not found")
 
@@ -604,14 +658,15 @@ async def get_stage2_analytics(
 @app.post("/api/users/profile", response_model=UserProfile)
 async def create_profile(
     request: CreateProfileRequest,
-    user: Dict[str, Any] = Depends(get_current_user)
+    user: Dict[str, Any] = Depends(get_current_user),
+    session: AsyncSession = Depends(get_db_session)
 ):
     """
     Create a user profile (after onboarding questions).
     Profile is locked after creation and cannot be edited.
     """
     # Check if profile already exists
-    existing_profile = storage.get_user_profile(user["user_id"])
+    existing_profile = await db_storage.get_user_profile(user["user_id"], session)
     if existing_profile:
         raise HTTPException(
             status_code=400,
@@ -619,23 +674,27 @@ async def create_profile(
         )
 
     # Create profile
-    profile = storage.create_user_profile(
+    profile = await db_storage.create_user_profile(
         user_id=user["user_id"],
-        email=user["email"],
         profile_data={
+            "email": user["email"],
             "gender": request.gender,
             "age_range": request.age_range,
             "mood": request.mood
-        }
+        },
+        session=session
     )
 
     return profile
 
 
 @app.get("/api/users/profile", response_model=UserProfile)
-async def get_profile(user: Dict[str, Any] = Depends(get_current_user)):
+async def get_profile(
+    user: Dict[str, Any] = Depends(get_current_user),
+    session: AsyncSession = Depends(get_db_session)
+):
     """Get the current user's profile."""
-    profile = storage.get_user_profile(user["user_id"])
+    profile = await db_storage.get_user_profile(user["user_id"], session)
 
     if profile is None:
         raise HTTPException(
@@ -649,20 +708,22 @@ async def get_profile(user: Dict[str, Any] = Depends(get_current_user)):
 @app.patch("/api/users/profile", response_model=UserProfile)
 async def update_profile(
     request: CreateProfileRequest,
-    user: Dict[str, Any] = Depends(get_current_user)
+    user: Dict[str, Any] = Depends(get_current_user),
+    session: AsyncSession = Depends(get_db_session)
 ):
     """
     Update user profile (only if not locked).
     Note: Profiles are locked by default after creation per spec.
     """
     try:
-        profile = storage.update_user_profile(
+        profile = await db_storage.update_user_profile(
             user_id=user["user_id"],
             profile_data={
                 "gender": request.gender,
                 "age_range": request.age_range,
                 "mood": request.mood
-            }
+            },
+            session=session
         )
         return profile
     except ValueError as e:
@@ -682,16 +743,19 @@ async def get_subscription_plans():
 
 
 @app.get("/api/subscription", response_model=SubscriptionResponse)
-async def get_user_subscription(user: Dict[str, Any] = Depends(get_current_user)):
+async def get_user_subscription(
+    user: Dict[str, Any] = Depends(get_current_user),
+    session: AsyncSession = Depends(get_db_session)
+):
     """
     Get the current user's subscription status.
     Creates a free subscription if none exists.
     """
-    subscription = storage.get_subscription(user["user_id"])
+    subscription = await db_storage.get_subscription(user["user_id"], session)
 
     if subscription is None:
         # Create default free subscription
-        subscription = storage.create_subscription(user["user_id"], tier="free")
+        subscription = await db_storage.create_subscription(user["user_id"], tier="free", session=session)
 
     return subscription
 
@@ -736,13 +800,16 @@ async def create_subscription_checkout(
 
 
 @app.post("/api/subscription/cancel")
-async def cancel_user_subscription(user: Dict[str, Any] = Depends(get_current_user)):
+async def cancel_user_subscription(
+    user: Dict[str, Any] = Depends(get_current_user),
+    session: AsyncSession = Depends(get_db_session)
+):
     """
     Cancel the user's recurring subscription at the end of the current billing period.
     Only works for active recurring subscriptions (monthly, yearly).
     """
     # Get user's subscription
-    subscription = storage.get_subscription(user["user_id"])
+    subscription = await db_storage.get_subscription(user["user_id"], session)
 
     if subscription is None:
         raise HTTPException(status_code=404, detail="No subscription found")
@@ -773,27 +840,31 @@ async def cancel_user_subscription(user: Dict[str, Any] = Depends(get_current_us
         cancel_subscription(stripe_sub_id)
 
         # Update local status to reflect cancellation
-        storage.update_subscription(
+        await db_storage.update_subscription(
             user["user_id"],
-            {"status": "cancelled"}
+            {"status": "cancelled"},
+            session
         )
 
         return {
             "message": "Subscription cancelled successfully. Access will continue until the end of the current billing period.",
-            "subscription": storage.get_subscription(user["user_id"])
+            "subscription": await db_storage.get_subscription(user["user_id"], session)
         }
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
 
 
 @app.get("/api/subscription/portal")
-async def get_subscription_portal(user: Dict[str, Any] = Depends(get_current_user)):
+async def get_subscription_portal(
+    user: Dict[str, Any] = Depends(get_current_user),
+    session: AsyncSession = Depends(get_db_session)
+):
     """
     Get the Stripe Customer Portal URL for managing payment methods.
     Creates a session that redirects back to the settings page.
     """
     # Get user's subscription
-    subscription = storage.get_subscription(user["user_id"])
+    subscription = await db_storage.get_subscription(user["user_id"], session)
 
     if subscription is None:
         raise HTTPException(status_code=404, detail="No subscription found")
@@ -843,98 +914,111 @@ async def stripe_webhook(request: Request):
     if event is None:
         raise HTTPException(status_code=400, detail="Invalid webhook signature")
 
-    # Handle different event types
-    event_type = event["type"]
+    # Create database session for webhook processing
+    session = DatabaseManager.get_session()
+    try:
+        # Handle different event types
+        event_type = event["type"]
 
-    if event_type == "checkout.session.completed":
-        # Payment successful
-        session = event["data"]["object"]
-        user_id = session["metadata"]["user_id"]
-        tier = session["metadata"]["tier"]
-        stripe_customer_id = session.get("customer")  # Capture customer ID for portal access
+        if event_type == "checkout.session.completed":
+            # Payment successful
+            checkout_session = event["data"]["object"]
+            user_id = checkout_session["metadata"]["user_id"]
+            tier = checkout_session["metadata"]["tier"]
+            stripe_customer_id = checkout_session.get("customer")  # Capture customer ID for portal access
 
-        # Get or create subscription
-        subscription = storage.get_subscription(user_id)
-        if subscription is None:
-            # Create new subscription
-            subscription = storage.create_subscription(user_id, tier=tier)
-            # Now update with Stripe IDs (can't pass to create_subscription due to schema)
-            update_data = {}
-            if stripe_customer_id:
-                update_data["stripe_customer_id"] = stripe_customer_id
-            if tier in ["monthly", "yearly"]:
-                update_data["stripe_subscription_id"] = session.get("subscription")
-            if update_data:
-                storage.update_subscription(user_id, update_data)
-        else:
-            # Update existing subscription
-            update_data = {
-                "tier": tier,
-                "status": "active"
-            }
+            # Get or create subscription
+            subscription = await db_storage.get_subscription(user_id, session)
+            if subscription is None:
+                # Create new subscription
+                subscription = await db_storage.create_subscription(user_id, tier=tier, session=session)
+                # Now update with Stripe IDs (can't pass to create_subscription due to schema)
+                update_data = {}
+                if stripe_customer_id:
+                    update_data["stripe_customer_id"] = stripe_customer_id
+                if tier in ["monthly", "yearly"]:
+                    update_data["stripe_subscription_id"] = checkout_session.get("subscription")
+                if update_data:
+                    await db_storage.update_subscription(user_id, update_data, session)
+            else:
+                # Update existing subscription
+                update_data = {
+                    "tier": tier,
+                    "status": "active"
+                }
 
-            # Store Stripe customer ID for Customer Portal access
-            if stripe_customer_id:
-                update_data["stripe_customer_id"] = stripe_customer_id
+                # Store Stripe customer ID for Customer Portal access
+                if stripe_customer_id:
+                    update_data["stripe_customer_id"] = stripe_customer_id
 
-            # For recurring subscriptions, store Stripe subscription ID
-            if tier in ["monthly", "yearly"]:
-                update_data["stripe_subscription_id"] = session.get("subscription")
-                # current_period_end will be set by subscription.created webhook
+                # For recurring subscriptions, store Stripe subscription ID
+                if tier in ["monthly", "yearly"]:
+                    update_data["stripe_subscription_id"] = checkout_session.get("subscription")
+                    # current_period_end will be set by subscription.created webhook
 
-            storage.update_subscription(user_id, update_data)
+                await db_storage.update_subscription(user_id, update_data, session)
 
-        # Feature 5: Auto-restore all expired reports when user subscribes
-        storage.restore_all_expired_reports(user_id)
+            # Feature 5: Auto-restore all expired reports when user subscribes
+            await db_storage.restore_all_expired_reports(user_id, session)
 
-    elif event_type == "customer.subscription.created":
-        # Subscription created (for recurring plans)
-        subscription_obj = event["data"]["object"]
-        stripe_sub_id = subscription_obj["id"]
-        current_period_end = subscription_obj["current_period_end"]
+        elif event_type == "customer.subscription.created":
+            # Subscription created (for recurring plans)
+            subscription_obj = event["data"]["object"]
+            stripe_sub_id = subscription_obj["id"]
+            current_period_end = subscription_obj["current_period_end"]
 
-        # Convert timestamp to ISO format
-        from datetime import datetime
-        period_end_iso = datetime.fromtimestamp(current_period_end).isoformat()
+            # Convert timestamp to ISO format
+            from datetime import datetime
+            period_end_iso = datetime.fromtimestamp(current_period_end).isoformat()
 
-        # Update subscription by Stripe ID
-        storage.update_subscription_by_stripe_id(
-            stripe_sub_id,
-            {"current_period_end": period_end_iso}
-        )
+            # Update subscription by Stripe ID
+            await db_storage.update_subscription_by_stripe_id(
+                stripe_sub_id,
+                {"current_period_end": period_end_iso},
+                session
+            )
 
-    elif event_type == "customer.subscription.updated":
-        # Subscription updated (renewal, plan change, etc.)
-        subscription_obj = event["data"]["object"]
-        stripe_sub_id = subscription_obj["id"]
-        status = subscription_obj["status"]
-        current_period_end = subscription_obj["current_period_end"]
+        elif event_type == "customer.subscription.updated":
+            # Subscription updated (renewal, plan change, etc.)
+            subscription_obj = event["data"]["object"]
+            stripe_sub_id = subscription_obj["id"]
+            status = subscription_obj["status"]
+            current_period_end = subscription_obj["current_period_end"]
 
-        # Convert timestamp to ISO format
-        from datetime import datetime
-        period_end_iso = datetime.fromtimestamp(current_period_end).isoformat()
+            # Convert timestamp to ISO format
+            from datetime import datetime
+            period_end_iso = datetime.fromtimestamp(current_period_end).isoformat()
 
-        # Update subscription
-        storage.update_subscription_by_stripe_id(
-            stripe_sub_id,
-            {
-                "status": status,
-                "current_period_end": period_end_iso
-            }
-        )
+            # Update subscription
+            await db_storage.update_subscription_by_stripe_id(
+                stripe_sub_id,
+                {
+                    "status": status,
+                    "current_period_end": period_end_iso
+                },
+                session
+            )
 
-    elif event_type == "customer.subscription.deleted":
-        # Subscription cancelled/expired
-        subscription_obj = event["data"]["object"]
-        stripe_sub_id = subscription_obj["id"]
+        elif event_type == "customer.subscription.deleted":
+            # Subscription cancelled/expired
+            subscription_obj = event["data"]["object"]
+            stripe_sub_id = subscription_obj["id"]
 
-        # Update subscription status
-        storage.update_subscription_by_stripe_id(
-            stripe_sub_id,
-            {"status": "cancelled"}
-        )
+            # Update subscription status
+            await db_storage.update_subscription_by_stripe_id(
+                stripe_sub_id,
+                {"status": "cancelled"},
+                session
+            )
 
-    return {"received": True}
+        await session.commit()
+        return {"received": True}
+    except Exception as e:
+        await session.rollback()
+        logger.error("webhook_processing_error", error=str(e))
+        raise
+    finally:
+        await session.close()
 
 
 if __name__ == "__main__":
