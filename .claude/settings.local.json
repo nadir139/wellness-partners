@@ -10,7 +10,9 @@
       "Bash(git ls-tree:*)",
       "Bash(netstat:*)",
       "Bash(findstr:*)",
-      "Bash(taskkill:*)"
+      "Bash(taskkill:*)",
+      "Bash(python:*)",
+      "Skill(ultra-think)"
     ],
     "deny": [],
     "ask": []
