@@ -199,8 +199,8 @@ class Message(Base):
             data["stage1"] = self.stage1
             data["stage2"] = self.stage2
             data["stage3"] = self.stage3
-            if self.metadata:
-                data["metadata"] = self.metadata
+            if self.metadata_:  # Note: attribute is metadata_ (with underscore)
+                data["metadata"] = self.metadata_
 
         return data
 
@@ -235,12 +235,18 @@ class DatabaseManager:
             db_url = db_url.replace("postgresql://", "postgresql+asyncpg://", 1)
 
         # Create async engine
+        # Note: statement_cache_size=0 is required for Supabase connection pooler (pgbouncer)
+        # which doesn't support prepared statements in transaction mode
         cls._engine = create_async_engine(
             db_url,
             echo=False,  # Set to True for SQL query logging
             pool_pre_ping=True,  # Verify connections before using
             pool_size=5,  # Connection pool size
-            max_overflow=10  # Max overflow connections
+            max_overflow=10,  # Max overflow connections
+            connect_args={
+                "statement_cache_size": 0,  # Disable prepared statements for pgbouncer
+                "prepared_statement_cache_size": 0  # Also disable prepared statement cache
+            }
         )
 
         # Create session maker

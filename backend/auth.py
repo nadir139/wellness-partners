@@ -88,6 +88,9 @@ async def get_current_user(authorization: Optional[str] = Header(None)):
         header = _decode_jwt_header(token)
         alg = header.get("alg", "HS256")
 
+        # Allow 60 seconds of clock skew for iat/nbf/exp validation
+        leeway = 60
+
         if alg == "ES256":
             # ES256 (ECDSA) - fetch public key from JWKS endpoint
             jwks_client = _get_jwks_client()
@@ -99,7 +102,8 @@ async def get_current_user(authorization: Optional[str] = Header(None)):
                 options={
                     "verify_aud": False,  # Supabase audience varies
                     "verify_iss": False,  # Issuer check not needed
-                }
+                },
+                leeway=leeway
             )
         else:
             # HS256/HS384/HS512 (HMAC) - use JWT secret directly
@@ -110,7 +114,8 @@ async def get_current_user(authorization: Optional[str] = Header(None)):
                 options={
                     "verify_aud": False,  # Supabase audience varies
                     "verify_iss": False,  # Issuer check not needed
-                }
+                },
+                leeway=leeway
             )
 
         # Extract user information from JWT payload
